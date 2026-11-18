@@ -1662,13 +1662,18 @@ class _AiChatScreenState extends State<AiChatScreen> {
                 style: ElevatedButton.styleFrom(
                   backgroundColor: DeckColors.primaryAccent,
                   foregroundColor: Colors.black,
+                  iconColor: Colors.black,
                   padding: EdgeInsets.zero,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(10),
                   ),
                 ),
                 onPressed: _handleSendPrompt,
-                child: const Icon(Icons.send_rounded, size: 19),
+                child: const Icon(
+                  Icons.send_rounded,
+                  size: 20,
+                  color: Colors.black,
+                ),
               ),
             ),
         ],
