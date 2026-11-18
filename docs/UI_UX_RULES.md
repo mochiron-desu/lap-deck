@@ -202,13 +202,18 @@ LAPDECK uses a persistent 4-tab `IndexedStack` + bottom `NavigationBar` in `lib/
 | :--- | :--- | :--- | :--- | :--- |
 | **0** | `Home` | `Icons.home_outlined` / `Icons.home` | `HomeTab` | Operational command deck: network health, target selector, context-aware quick actions, peer summary, and Lapdog security overview. |
 | **1** | `Devices` | `Icons.devices_outlined` / `Icons.devices` | `DevicesTab` | Searchable, filterable inventory of all enrolled peers with subsystem pills, target switching, and node enrollment. |
-| **2** | `Terminal` | `Icons.terminal_outlined` / `Icons.terminal` | `TerminalTab` | Interactive `xterm-256color` PTY shell with hardware modifier keybar, font size controls, buffer copy, and target mismatch protection. |
+| **2** | `Connector` | `Icons.cell_tower_outlined` / `Icons.cell_tower` | `ConnectorTab` | Telegram Antigravity Connector operations: mesh overview, peer lifecycle lockout, media command audit stream, structured error feed, and dynamic API runner. |
 | **3** | `Settings` | `Icons.settings_outlined` / `Icons.settings` | `SettingsTab` | Network failover preferences, Android Keystore status, and build metadata. |
 
 ### 7.2 Navigation Rules
-1. **Preserve the 4-Tab Architecture**: Do not add a 5th bottom navigation tab or replace the `IndexedStack` with a destructive router that disposes `TerminalTab` when switching tabs.
-2. **Back Button Behavior (`PopScope`)**: In `AppScaffold`, pressing the Android system back button when `_currentTabIndex != 0` returns the user to Tab 0 (`Home`) rather than exiting the app (`canPop: _currentTabIndex == 0`).
-3. **Secondary Push Routes**: Deep inspection of a host pushes `DeviceDetailScreen` via `Navigator.of(context).push(MaterialPageRoute(...))`. When pushing `DeviceDetailScreen` from **any** screen (`HomeTab` or `DevicesTab`), callers must pass `isGlobalTarget`, `onSelectAsTarget`, and `onTelemetryUpdated` so target selection and telemetry caching behave identically regardless of entry point.
+1. **Preserve the 4-Tab Architecture**: Keep the bottom navigation strictly at four destinations (`Home`, `Devices`, `Connector`, `Settings`). Never introduce a fifth tab.
+2. **Relocated Terminal Access**: Terminal remains fully operational through three dedicated contextual entry points rather than occupying a bottom-navigation tab:
+   - **Home Quick Actions**: The `Terminal` quick action card opens `TerminalTab` via `Navigator.push`, automatically reusing an existing PTY session or connecting to the active host.
+   - **Device Detail Screen**: Dedicated `Open Terminal` action in the AppBar and an action button inside the device overview card bound to the inspected host.
+   - **Devices Tab Contextual Action**: Direct terminal launch icon on each enrolled device card.
+   - **Session Persistence**: Sessions survive navigation popping because `TerminalSessionController` is owned by the app root. An explicit leading back button (`Icons.arrow_back`) is rendered in `TerminalTab` when pushed onto the stack.
+3. **Back Button Behavior (`PopScope`)**: In `AppScaffold`, pressing the Android system back button when `_currentTabIndex != 0` returns the user to Tab 0 (`Home`) rather than exiting the app (`canPop: _currentTabIndex == 0`).
+4. **Secondary Push Routes**: Deep inspection of a host pushes `DeviceDetailScreen` via `Navigator.of(context).push(MaterialPageRoute(...))`. When pushing `DeviceDetailScreen` from **any** screen (`HomeTab` or `DevicesTab`), callers must pass `isGlobalTarget`, `onSelectAsTarget`, and `onTelemetryUpdated` so target selection and telemetry caching behave identically regardless of entry point.
 
 ---
 
@@ -308,3 +313,42 @@ LAPDECK targets Android (`minSdk = 24`, `compileSdk = 36`, `targetSdk = 35`) wit
    - Pull-to-refresh uses standard Material `RefreshIndicator` styled with `color: DeckColors.primaryAccent` and `backgroundColor: DeckColors.surfaceElevated`.
    - Tab switching uses `IndexedStack` (instantaneous switch with zero state loss and zero decorative page-slide delay).
 2. **Prohibited Motion**: Do not add looping pulse animations on status dots, particle effects, custom page transition animations, or multi-second splash delays that slow down operational access.
+
+---
+
+## 14. Brand Mark, Logo & Iconography Specification
+
+### 14.1 Product Identity & Core Metaphor
+> **One control surface. Multiple remote systems.**
+
+LAPDECK avoids consumer software clichés (laptop outlines, screens, terminal carets, clouds, Wi-Fi arcs, circuit boards, or generic connected graph diagrams). Its brand mark represents an engineered, physical control surface operating across distributed planes.
+
+### 14.2 The Canonical Brand Mark: The Folded Deck (The Cantilever Deck)
+The official visual symbol is **The Cantilever Deck** (Direction 1.1), constructed on a 64x64 grid:
+- **Lower Ground Plane (Local Deck)**: Grounded base plate (`x: 8, y: 44, width: 48, height: 10, rx: 3px`) in warm signature amber (`#E89A50`).
+- **Structural Spine / Vertical Riser**: Monolithic vertical column (`x: 8, y: 12, width: 14, height: 36, rx: 3px`) in primary text neutral (`#F1F3F5`), fused into the base plate to subtly evoke an architectural **L** monogram without becoming a literal typographic glyph.
+- **Elevated Remote Plane (Infrastructure Shelf)**: Cantilevered upper plane (`x: 26, y: 12, width: 30, height: 10, rx: 3px`) in warm signature amber (`#E89A50`), separated from the structural riser by an engineered **4px air-gap slot** representing remote isolation.
+- **Verification Node**: Precision alignment dot at `(26, 30)` radius `2.5px` in mint emerald (`#36B58E`), symbolizing verified peer connectivity.
+- **Master Vector Asset**: `assets/branding/lapdeck_brandmark.svg`
+
+### 14.3 Android Adaptive Launcher Icon Specification
+In compliance with Android 8.0+ adaptive icon standards and Android 13+ Material You themed icons:
+- **Viewport**: `108 x 108 dp` with an inner `72dp` diameter circular safe zone centered at `(54, 54)`.
+- **Background Layer (`ic_launcher_background.xml` / `@color/ic_launcher_background`)**: Solid slate `#11151B`.
+- **Foreground Layer (`ic_launcher_foreground.xml`)**: VectorDrawable centering the Cantilever Deck geometry with safe zone padding (all paths bounded within `x: 30..78, y: 34..76`).
+- **Monochrome Themed Layer (`ic_launcher_monochrome.xml`)**: Solid white (`#FFFFFF`) silhouette vector enabling dynamic Material You tinting based on the user's Android system wallpaper.
+- **Manifest Reference**: `android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml`
+
+### 14.4 Wordmark Lockup Rules
+When pairing the brand mark with text:
+- **`LAP` Component**: Rendered in `Inter`, `24sp`, `FontWeight.w800`, `letterSpacing: 0.5`, Color `#F1F3F5`.
+- **`DECK` Component**: Rendered in `JetBrains Mono`, `24sp`, `FontWeight.w700`, `letterSpacing: -0.2`, Color `#E89A50`.
+- **Subtitle**: `CONTROL SURFACE` in `JetBrains Mono`, `8.5sp`, `FontWeight.w500`, `letterSpacing: 2.2`, Color `#A0AAB8`.
+- **Lockup Asset**: `assets/branding/lapdeck_wordmark_lockup.svg`
+
+### 14.5 Small Navigation Icon Family Rules
+All navigation and contextual action icons must share consistent visual weight:
+- **Grid Alignment**: Standard `24x24dp` bounding box with `2dp` padding.
+- **Stroke & Mass**: Stroke width `1.8dp` for unselected outlined icons; `2.2dp` or solid silhouette for active selected icons.
+- **Fillet Consistency**: `2.0dp` outer corner fillets; sharp `0dp` inner vertices matching the brand mark geometry.
+

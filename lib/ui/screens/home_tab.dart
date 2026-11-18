@@ -8,6 +8,7 @@ import '../../services/storage_service.dart';
 import '../../services/terminal_session_controller.dart';
 import 'device_detail_screen.dart';
 import 'host_config_dialog.dart';
+import 'terminal_tab.dart';
 
 class HomeTab extends StatefulWidget {
   final List<HostTarget> hosts;
@@ -308,7 +309,17 @@ class _HomeTabState extends State<HomeTab> {
           timestamp: DateTime.now(),
         );
       });
-      widget.onNavigateTab(2);
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (ctx) => TerminalTab(
+            hosts: widget.hosts,
+            activeHost: target,
+            controller: widget.terminalController,
+            storage: widget.storage,
+            onSelectHost: widget.onSelectHost,
+          ),
+        ),
+      );
       return;
     }
 
@@ -431,7 +442,17 @@ class _HomeTabState extends State<HomeTab> {
                       child: ElevatedButton.icon(
                         onPressed: () async {
                           Navigator.of(sheetCtx).pop();
-                          widget.onNavigateTab(2);
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (ctx) => TerminalTab(
+                                hosts: widget.hosts,
+                                activeHost: target,
+                                controller: widget.terminalController,
+                                storage: widget.storage,
+                                onSelectHost: widget.onSelectHost,
+                              ),
+                            ),
+                          );
                           final secret = await widget.storage
                               .getHostCredential(target.id);
                           await widget.terminalController.connect(

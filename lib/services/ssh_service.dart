@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:dartssh2/dartssh2.dart';
 import '../models/host_target.dart';
 import '../models/vitals_data.dart';
+import 'app_logger.dart';
 
 class SshExecutionResult {
   final int? exitCode;
@@ -89,14 +90,22 @@ class SshService {
         final nameLower = iface.name.toLowerCase();
         if (nameLower.contains('tailscale') || nameLower.contains('tun')) {
           for (final addr in iface.addresses) {
-            if (_isTailscaleCgnat(addr.address)) return true;
+            if (_isTailscaleCgnat(addr.address)) {
+              AppLogger.debug('SshService', 'Tailscale interface active: ${iface.name} (${addr.address})');
+              return true;
+            }
           }
         }
         for (final addr in iface.addresses) {
-          if (_isTailscaleCgnat(addr.address)) return true;
+          if (_isTailscaleCgnat(addr.address)) {
+            AppLogger.debug('SshService', 'Tailscale CGNAT addr active: ${iface.name} (${addr.address})');
+            return true;
+          }
         }
       }
-    } catch (_) {}
+    } catch (e, st) {
+      AppLogger.warning('SshService', 'Failed inspecting local network interfaces: $e', e, st);
+    }
     return false;
   }
 
@@ -752,15 +761,19 @@ lapdog status 2>/dev/null || ~/.local/bin/lapdog status 2>/dev/null || echo "LAP
     String? privateKeyPem,
     required Duration timeout,
   }) async {
+    AppLogger.debug('SshService', 'Connecting SSH socket to $ip:$port (user: $username)...');
     final socket = await SSHSocket.connect(ip, port, timeout: timeout);
 
     List<SSHKeyPair>? identities;
     if (privateKeyPem != null && privateKeyPem.trim().isNotEmpty) {
       try {
         identities = SSHKeyPair.fromPem(privateKeyPem);
-      } catch (_) {}
+      } catch (e, st) {
+        AppLogger.warning('SshService', 'Failed parsing privateKeyPem: $e', e, st);
+      }
     }
 
+    AppLogger.info('SshService', 'SSH socket connected to $ip:$port, initializing client (hasIdentities: ${identities?.isNotEmpty == true})...');
     return SSHClient(
       socket,
       username: username,

@@ -7,6 +7,11 @@ class StorageService {
   static const String _keyHosts = 'lapdeck_saved_hosts_v2';
   static const String _keyActiveHost = 'lapdeck_active_host_id';
   static const String _secKeyPrefix = 'lapdeck_cred_';
+  static const String _secConnectorTokenPrefix = 'lapdeck_connector_token_';
+  static const String _keyGlobalConnectorToken = 'lapdeck_global_connector_token';
+
+  /// Pre-shared secret matching telegram-antigravity-connector PEER_SECRET
+  static const String defaultConnectorSecret = 'c9a6c340f06ed1536fc3ff6e822df3e7';
 
   static const String defaultPersonalKey = String.fromEnvironment('LAPDECK_DEFAULT_SSH_KEY', defaultValue: '');
 
@@ -33,6 +38,10 @@ class StorageService {
     final cred2 = await getHostCredential('host-mochirondesu');
     if (cred2 == null || cred2.isEmpty) {
       await saveHostCredential('host-mochirondesu', defaultPersonalKey);
+    }
+    final savedToken = await _secureStorage.read(key: _keyGlobalConnectorToken);
+    if (savedToken == null || savedToken.isEmpty) {
+      await saveConnectorToken(defaultConnectorSecret);
     }
   }
 
@@ -92,8 +101,29 @@ class StorageService {
     return defaultPersonalKey;
   }
 
+  /// Securely saves Telegram Antigravity Connector token (per host or globally).
+  Future<void> saveConnectorToken(String token, [String? hostId]) async {
+    if (hostId != null && hostId.isNotEmpty) {
+      await _secureStorage.write(key: '$_secConnectorTokenPrefix$hostId', value: token);
+    } else {
+      await _secureStorage.write(key: _keyGlobalConnectorToken, value: token);
+    }
+  }
+
+  /// Retrieves securely saved connector token, falling back to global token or default secret.
+  Future<String> getConnectorToken([String? hostId]) async {
+    if (hostId != null && hostId.isNotEmpty) {
+      final hostToken = await _secureStorage.read(key: '$_secConnectorTokenPrefix$hostId');
+      if (hostToken != null && hostToken.isNotEmpty) return hostToken;
+    }
+    final globalToken = await _secureStorage.read(key: _keyGlobalConnectorToken);
+    if (globalToken != null && globalToken.isNotEmpty) return globalToken;
+    return defaultConnectorSecret;
+  }
+
   /// Deletes credential on host removal.
   Future<void> deleteHostCredential(String hostId) async {
     await _secureStorage.delete(key: '$_secKeyPrefix$hostId');
+    await _secureStorage.delete(key: '$_secConnectorTokenPrefix$hostId');
   }
 }

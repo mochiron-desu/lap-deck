@@ -4,22 +4,26 @@ import '../../models/vitals_data.dart';
 import '../../services/ssh_service.dart';
 import '../../services/storage_service.dart';
 import '../../services/terminal_session_controller.dart';
+import '../../services/connector_service.dart';
+import '../../services/app_logger.dart';
 import 'home_tab.dart';
 import 'devices_tab.dart';
-import 'terminal_tab.dart';
+import 'connector_tab.dart';
 import 'settings_tab.dart';
 
 class AppScaffold extends StatefulWidget {
   final StorageService storage;
   final SshService sshService;
   final TerminalSessionController terminalController;
+  final ConnectorService connectorService;
 
-  const AppScaffold({
+  AppScaffold({
     super.key,
     required this.storage,
     required this.sshService,
     required this.terminalController,
-  });
+    ConnectorService? connectorService,
+  }) : connectorService = connectorService ?? ConnectorService();
 
   @override
   State<AppScaffold> createState() => _AppScaffoldState();
@@ -111,6 +115,7 @@ class _AppScaffoldState extends State<AppScaffold> with WidgetsBindingObserver {
     }
 
     try {
+      AppLogger.info('AppScaffold', 'Probing network reachability across ${_hosts.length} peers...');
       // 1. Parallel live reachability test across all known peers
       final reachabilityResults = await Future.wait(
         snapshotHosts.map((h) => widget.sshService.checkReachability(h)),
@@ -121,6 +126,10 @@ class _AppScaffoldState extends State<AppScaffold> with WidgetsBindingObserver {
       for (int i = 0; i < snapshotHosts.length; i++) {
         final r = reachabilityResults[i];
         reachById[snapshotHosts[i].id] = r;
+        AppLogger.debug(
+          'AppScaffold',
+          'Peer probe: ${snapshotHosts[i].name} -> online: ${r.isOnline}, ssh: ${r.sshPortStatus.name}, ping: ${r.latencyMs}ms',
+        );
         if (r.localTailscaleActive || (r.isOnline && !r.isDirect)) {
           anyTailscaleActive = true;
         }
@@ -333,12 +342,13 @@ class _AppScaffoldState extends State<AppScaffold> with WidgetsBindingObserver {
               onRefresh: () => _refreshNetworkState(),
               isRefreshing: _isRefreshing,
             ),
-            // Tab 2: Terminal
-            TerminalTab(
+            // Tab 2: Connector
+            ConnectorTab(
               hosts: _hosts,
               activeHost: activeHost,
-              controller: widget.terminalController,
               storage: widget.storage,
+              connectorService: widget.connectorService,
+              sshService: widget.sshService,
               onSelectHost: _handleSelectHost,
             ),
             // Tab 3: Settings
@@ -363,9 +373,9 @@ class _AppScaffoldState extends State<AppScaffold> with WidgetsBindingObserver {
               label: 'Devices',
             ),
             NavigationDestination(
-              icon: Icon(Icons.terminal_outlined),
-              selectedIcon: Icon(Icons.terminal),
-              label: 'Terminal',
+              icon: Icon(Icons.cell_tower_outlined),
+              selectedIcon: Icon(Icons.cell_tower),
+              label: 'Connector',
             ),
             NavigationDestination(
               icon: Icon(Icons.settings_outlined),

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" fill="none">
+  <!-- LAPDECK Monochrome Brand Mark -->
+  <!-- Grounded L-Anchor (Local Control Deck + Spine) -->
+  <path d="M10.5 12H19.5C20.6 12 21.5 12.9 21.5 14V42H53.5C54.6 42 55.5 42.9 55.5 44V50C55.5 51.1 54.6 52 53.5 52H10.5C9.4 52 8.5 51.1 8.5 50V14C8.5 12.9 9.4 12 10.5 12Z" fill="currentColor"/>
+  <!-- Elevated Remote Plane -->
+  <rect x="25.5" y="12" width="30" height="10" rx="2" fill="currentColor"/>
+  <!-- Connecting Structural Node -->
+  <circle cx="23.5" cy="27" r="2" fill="currentColor"/>
+</svg>

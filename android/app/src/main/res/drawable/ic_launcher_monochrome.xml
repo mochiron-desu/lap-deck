@@ -1,0 +1,22 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Grounded Local Deck (Base Plate) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M32.5,66 L75.5,66 A2.5,2.5 0,0 1,78 68.5 L78,73.5 A2.5,2.5 0,0 1,75.5 76 L32.5,76 A2.5,2.5 0,0 1,30 73.5 L30,68.5 A2.5,2.5 0,0 1,32.5 66 Z" />
+    <!-- Structural Vertical Riser (L-Spine) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M32.5,34 L40.5,34 A2.5,2.5 0,0 1,43 36.5 L43,73.5 A2.5,2.5 0,0 1,40.5 76 L32.5,76 A2.5,2.5 0,0 1,40.5 76 L32.5,76 A2.5,2.5 0,0 1,30 73.5 L30,36.5 A2.5,2.5 0,0 1,32.5 34 Z" />
+    <!-- Elevated Remote Plane (Cantilever Shelf) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M48.5,34 L75.5,34 A2.5,2.5 0,0 1,78 36.5 L78,41.5 A2.5,2.5 0,0 1,75.5 44 L48.5,44 A2.5,2.5 0,0 1,46 41.5 L46,36.5 A2.5,2.5 0,0 1,48.5 34 Z" />
+    <!-- Precision Verification Node -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M 48, 55 m -2.5, 0 a 2.5,2.5 0 1,0 5,0 a 2.5,2.5 0 1,0 -5,0" />
+</vector>

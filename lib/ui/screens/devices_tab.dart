@@ -6,6 +6,7 @@ import '../../services/storage_service.dart';
 import '../../services/terminal_session_controller.dart';
 import 'device_detail_screen.dart';
 import 'host_config_dialog.dart';
+import 'terminal_tab.dart';
 
 class DevicesTab extends StatefulWidget {
   final List<HostTarget> hosts;
@@ -475,6 +476,29 @@ class _DevicesTabState extends State<DevicesTab> {
                       alignment: Alignment.centerLeft,
                     ),
                   ),
+                ),
+                Container(
+                  width: 1,
+                  height: 24,
+                  color: DeckColors.borderSubtle,
+                ),
+                IconButton(
+                  icon: const Icon(Icons.terminal, size: 18),
+                  color: DeckColors.secondaryText,
+                  tooltip: 'Open Terminal on ${host.name}',
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (ctx) => TerminalTab(
+                          hosts: widget.hosts,
+                          activeHost: host,
+                          controller: widget.terminalController,
+                          storage: widget.storage,
+                          onSelectHost: widget.onSelectHost,
+                        ),
+                      ),
+                    );
+                  },
                 ),
                 Container(
                   width: 1,

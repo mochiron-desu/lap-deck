@@ -11,6 +11,7 @@ import '../widgets/lapdog_card.dart';
 import '../widgets/process_manager_card.dart';
 import '../widgets/quick_controls_card.dart';
 import 'host_config_dialog.dart';
+import 'terminal_tab.dart';
 
 class DeviceDetailScreen extends StatefulWidget {
   final HostTarget host;
@@ -430,6 +431,20 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
     );
   }
 
+  void _openTerminal() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (ctx) => TerminalTab(
+          hosts: [_currentHost],
+          activeHost: _currentHost,
+          controller: widget.terminalController,
+          storage: widget.storage,
+          onSelectHost: (_) {},
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -438,6 +453,12 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
         backgroundColor: DeckColors.background,
         elevation: 0,
         actions: [
+          IconButton(
+            constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+            icon: const Icon(Icons.terminal, size: 20),
+            tooltip: 'Open Terminal',
+            onPressed: _openTerminal,
+          ),
           IconButton(
             constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
             icon: _isVitalsLoading
@@ -769,6 +790,24 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
               ),
             ),
           ],
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: _openTerminal,
+              icon: const Icon(Icons.terminal, size: 16),
+              label: Text('Open Terminal on ${_currentHost.name}'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: DeckColors.surfaceElevated,
+                foregroundColor: DeckColors.primaryAccent,
+                minimumSize: const Size.fromHeight(44),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  side: const BorderSide(color: DeckColors.borderSubtle),
+                ),
+              ),
+            ),
+          ),
           const Divider(color: DeckColors.borderSubtle, height: 24),
           // Independent Health States
           _buildDetailRow(

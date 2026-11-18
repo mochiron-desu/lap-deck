@@ -109,6 +109,13 @@ class _TerminalTabState extends State<TerminalTab> {
 
     return Scaffold(
       appBar: AppBar(
+        leading: Navigator.of(context).canPop()
+            ? IconButton(
+                icon: const Icon(Icons.arrow_back),
+                tooltip: 'Back',
+                onPressed: () => Navigator.of(context).pop(),
+              )
+            : null,
         title: Text(
           isConnected && connectedHost != null
               ? 'Terminal · ${connectedHost.name}'

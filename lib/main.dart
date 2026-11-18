@@ -1,6 +1,8 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'theme/deck_theme.dart';
+import 'services/app_logger.dart';
 import 'services/storage_service.dart';
 import 'services/ssh_service.dart';
 import 'services/terminal_session_controller.dart';
@@ -8,6 +10,26 @@ import 'ui/screens/app_scaffold.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  await AppLogger.init();
+  AppLogger.info('App', 'LAPDECK v1.2.0 starting up...');
+
+  // Catch Flutter framework errors
+  FlutterError.onError = (FlutterErrorDetails details) {
+    FlutterError.presentError(details);
+    AppLogger.error(
+      'FlutterError',
+      details.exceptionAsString(),
+      details.exception,
+      details.stack,
+    );
+  };
+
+  // Catch unhandled async / platform errors
+  PlatformDispatcher.instance.onError = (Object error, StackTrace stack) {
+    AppLogger.error('PlatformDispatcher', error.toString(), error, stack);
+    return true;
+  };
 
   // Set system UI overlay style to deep dark tactical styling
   SystemChrome.setSystemUIOverlayStyle(
