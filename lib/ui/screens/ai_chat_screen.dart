@@ -35,7 +35,8 @@ class AiChatScreen extends StatefulWidget {
   State<AiChatScreen> createState() => _AiChatScreenState();
 }
 
-class _AiChatScreenState extends State<AiChatScreen> {
+class _AiChatScreenState extends State<AiChatScreen>
+    with WidgetsBindingObserver {
   late HostTarget _targetHost;
   String? _activeConversationId;
   String _activeWorkspace = '';
@@ -52,12 +53,21 @@ class _AiChatScreenState extends State<AiChatScreen> {
   final TextEditingController _promptController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   StreamSubscription<AiStreamEvent>? _streamSub;
+  Timer? _watchdogTimer;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _targetHost = widget.initialHost;
     _loadInitialSession();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _reconcileSessionWithPeer(silent: true);
+    }
   }
 
   @override
@@ -73,10 +83,153 @@ class _AiChatScreenState extends State<AiChatScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _stopWatchdogTimer();
     _streamSub?.cancel();
     _promptController.dispose();
     _scrollController.dispose();
     super.dispose();
+  }
+
+  void _startWatchdogTimer() {
+    _watchdogTimer?.cancel();
+    _watchdogTimer = Timer.periodic(const Duration(seconds: 4), (_) {
+      if (!_isStreaming || !mounted) {
+        _stopWatchdogTimer();
+        return;
+      }
+      _reconcileSessionWithPeer(silent: true);
+    });
+  }
+
+  void _stopWatchdogTimer() {
+    _watchdogTimer?.cancel();
+    _watchdogTimer = null;
+  }
+
+  /// Normalizes turns so historical or past turns are never stuck in 'streaming'.
+  List<AiConversationTurn> _sanitizeTurns(
+    List<AiConversationTurn> turns, {
+    required bool isRunning,
+  }) {
+    if (turns.isEmpty) return turns;
+    final result = <AiConversationTurn>[];
+    for (int i = 0; i < turns.length; i++) {
+      final turn = turns[i];
+      final isLast = (i == turns.length - 1);
+      if (turn.status == AiTurnStatus.streaming) {
+        if (!isLast || !isRunning) {
+          final resolved = turn.response.isNotEmpty
+              ? AiTurnStatus.completed
+              : (turn.tools.isNotEmpty
+                  ? AiTurnStatus.completed
+                  : AiTurnStatus.aborted);
+          result.add(
+            turn.copyWith(
+              status: resolved,
+              clearCurrentTool: true,
+            ),
+          );
+          continue;
+        }
+      }
+      result.add(turn);
+    }
+    return result;
+  }
+
+  /// Reconciles session state with peer node when app resumes or watchdog ticks.
+  Future<void> _reconcileSessionWithPeer({bool silent = true}) async {
+    if (!mounted) return;
+    final capturedHost = _targetHost;
+    final capturedConvId = _activeConversationId;
+
+    try {
+      final secret = await widget.storage.getConnectorToken(capturedHost.id);
+      final historyRes = await widget.connectorService.fetchConversationHistory(
+        capturedHost,
+        conversationId: capturedConvId,
+        secret: secret,
+      );
+
+      if (!mounted || _targetHost.id != capturedHost.id) return;
+
+      if (historyRes['ok'] == true) {
+        final isPeerRunning = historyRes['isRunning'] == true;
+        final rawTurns =
+            (historyRes['turns'] as List<AiConversationTurn>?) ?? [];
+        final peerConvId = historyRes['conversationId']?.toString();
+
+        if (peerConvId != null && peerConvId.isNotEmpty) {
+          _activeConversationId = peerConvId;
+        }
+
+        if (_isStreaming && !isPeerRunning) {
+          // Completed while backgrounded or disconnected
+          _stopWatchdogTimer();
+          await _streamSub?.cancel();
+          _streamSub = null;
+
+          final sanitized = _sanitizeTurns(rawTurns, isRunning: false);
+          final completedTurn =
+              sanitized.isNotEmpty ? sanitized.last : null;
+          final isSuccess = completedTurn != null &&
+              completedTurn.status == AiTurnStatus.completed;
+
+          setState(() {
+            _isStreaming = false;
+            _turns = sanitized;
+          });
+
+          if (completedTurn != null) {
+            widget.notificationService?.notifyAiTurnFinished(
+              hostName: capturedHost.name,
+              isSuccess: isSuccess,
+              summary: completedTurn.response.isNotEmpty
+                  ? completedTurn.response
+                  : (isSuccess
+                      ? 'Prompt completed on ${capturedHost.name}'
+                      : (completedTurn.errorMessage ?? 'Turn finished')),
+            );
+          }
+          _scrollToBottom();
+        } else if (_isStreaming && isPeerRunning) {
+          // Still active on peer: sync thoughts/tools
+          if (rawTurns.isNotEmpty) {
+            final latest = rawTurns.last;
+            setState(() {
+              if (_turns.isNotEmpty) {
+                final lastIdx = _turns.length - 1;
+                final current = _turns[lastIdx];
+                final updatedTools = List<String>.from(current.tools);
+                for (final t in latest.tools) {
+                  if (!updatedTools.contains(t)) updatedTools.add(t);
+                }
+                _turns[lastIdx] = current.copyWith(
+                  thinking: latest.thinking.isNotEmpty
+                      ? latest.thinking
+                      : current.thinking,
+                  response: latest.response.isNotEmpty
+                      ? latest.response
+                      : current.response,
+                  tools: updatedTools,
+                  currentTool: latest.currentTool,
+                );
+              }
+            });
+            _scrollToBottom();
+          }
+        } else if (!_isStreaming) {
+          final sanitized =
+              _sanitizeTurns(rawTurns, isRunning: isPeerRunning);
+          setState(() {
+            _turns = sanitized;
+          });
+        }
+      }
+    } catch (_) {
+      // Background reconciliation should remain silent
+    }
   }
 
   Future<String> _getSecret() async {
@@ -134,7 +287,17 @@ class _AiChatScreenState extends State<AiChatScreen> {
           if (ws != null && ws.isNotEmpty) _activeWorkspace = ws;
           final mdl = historyRes['model']?.toString();
           if (mdl != null && mdl.isNotEmpty) _activeModel = mdl;
-          _turns = (historyRes['turns'] as List<AiConversationTurn>?) ?? [];
+          final isRunning = historyRes['isRunning'] == true;
+          final rawTurns =
+              (historyRes['turns'] as List<AiConversationTurn>?) ?? [];
+          _turns = _sanitizeTurns(rawTurns, isRunning: isRunning);
+
+          if (!isRunning && _isStreaming) {
+            _isStreaming = false;
+            _stopWatchdogTimer();
+            _streamSub?.cancel();
+            _streamSub = null;
+          }
         } else {
           _errorBanner = historyRes['error']?.toString() ??
               'Could not load AI session from ${capturedHost.name} on port ${ConnectorService.defaultPort}.';
@@ -176,7 +339,22 @@ class _AiChatScreenState extends State<AiChatScreen> {
     final capturedWorkspace = _activeWorkspace;
     final capturedModel = _activeModel;
 
-    final turnIndex = _turns.length;
+    // Sanitize any existing turns so no earlier turn is stuck in streaming
+    final sanitizedPriorTurns = _turns.map((t) {
+      if (t.status == AiTurnStatus.streaming) {
+        return t.copyWith(
+          status: t.response.isNotEmpty
+              ? AiTurnStatus.completed
+              : (t.tools.isNotEmpty
+                  ? AiTurnStatus.completed
+                  : AiTurnStatus.aborted),
+          clearCurrentTool: true,
+        );
+      }
+      return t;
+    }).toList();
+
+    final turnIndex = sanitizedPriorTurns.length;
     final newTurn = AiConversationTurn(
       stepIndex: turnIndex,
       prompt: text,
@@ -187,9 +365,10 @@ class _AiChatScreenState extends State<AiChatScreen> {
     setState(() {
       _isStreaming = true;
       _errorBanner = null;
-      _turns = [..._turns, newTurn];
+      _turns = [...sanitizedPriorTurns, newTurn];
     });
     _scrollToBottom();
+    _startWatchdogTimer();
 
     final secret = await widget.storage.getConnectorToken(capturedHost.id);
     final stream = widget.connectorService.streamAgentTurn(
@@ -226,6 +405,7 @@ class _AiChatScreenState extends State<AiChatScreen> {
               tools: updatedTools,
             );
           } else if (event.event == 'final') {
+            _stopWatchdogTimer();
             if (event.conversationId != null &&
                 event.conversationId!.isNotEmpty) {
               _activeConversationId = event.conversationId;
@@ -260,6 +440,7 @@ class _AiChatScreenState extends State<AiChatScreen> {
       },
       onError: (e) {
         if (!mounted) return;
+        _stopWatchdogTimer();
         setState(() {
           _turns[turnIndex] = _turns[turnIndex].copyWith(
             status: AiTurnStatus.error,
@@ -268,9 +449,12 @@ class _AiChatScreenState extends State<AiChatScreen> {
           );
           _isStreaming = false;
         });
+        // Check with peer in case the operation completed while stream dropped
+        _reconcileSessionWithPeer(silent: true);
       },
       onDone: () {
         if (!mounted) return;
+        _stopWatchdogTimer();
         if (_isStreaming) {
           setState(() {
             _turns[turnIndex] = _turns[turnIndex].copyWith(
@@ -281,6 +465,7 @@ class _AiChatScreenState extends State<AiChatScreen> {
             );
             _isStreaming = false;
           });
+          _reconcileSessionWithPeer(silent: true);
         }
       },
     );
@@ -289,6 +474,7 @@ class _AiChatScreenState extends State<AiChatScreen> {
   Future<void> _handleAbortTurn() async {
     if (!_isStreaming) return;
     HapticFeedback.heavyImpact();
+    _stopWatchdogTimer();
     await _streamSub?.cancel();
     _streamSub = null;
 
@@ -1199,7 +1385,16 @@ class _AiChatScreenState extends State<AiChatScreen> {
 
   Widget _buildTurnCard(int index, AiConversationTurn turn) {
     final isThinkingExpanded = _expandedThinkingIndices.contains(index);
-    final statusColor = switch (turn.status) {
+    final isStreamingCard = turn.status == AiTurnStatus.streaming &&
+        (index == _turns.length - 1) &&
+        _isStreaming;
+    final effectiveStatus =
+        (turn.status == AiTurnStatus.streaming && !isStreamingCard)
+            ? (turn.response.isNotEmpty || turn.tools.isNotEmpty
+                ? AiTurnStatus.completed
+                : AiTurnStatus.aborted)
+            : turn.status;
+    final statusColor = switch (effectiveStatus) {
       AiTurnStatus.streaming => DeckColors.primaryAccent,
       AiTurnStatus.completed => DeckColors.healthy,
       AiTurnStatus.error => DeckColors.error,
@@ -1277,7 +1472,7 @@ class _AiChatScreenState extends State<AiChatScreen> {
             color: DeckColors.surfaceSecondary,
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
-              color: turn.status == AiTurnStatus.streaming
+              color: isStreamingCard
                   ? DeckColors.primaryAccent.withValues(alpha: 0.6)
                   : DeckColors.borderSubtle,
             ),
@@ -1315,7 +1510,7 @@ class _AiChatScreenState extends State<AiChatScreen> {
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        if (turn.status == AiTurnStatus.streaming) ...[
+                        if (isStreamingCard) ...[
                           SizedBox(
                             width: 9,
                             height: 9,
@@ -1327,7 +1522,7 @@ class _AiChatScreenState extends State<AiChatScreen> {
                           const SizedBox(width: 5),
                         ],
                         Text(
-                          turn.status.label,
+                          effectiveStatus.label,
                           style: GoogleFonts.jetBrainsMono(
                             fontSize: 9,
                             fontWeight: FontWeight.w700,
@@ -1442,8 +1637,25 @@ class _AiChatScreenState extends State<AiChatScreen> {
                   runSpacing: 6,
                   children: [
                     if (turn.currentTool != null &&
-                        turn.currentTool!.isNotEmpty)
-                      Container(
+                        turn.currentTool!.isNotEmpty) () {
+                      final rawTool = turn.currentTool!;
+                      final activeLine = rawTool
+                          .split('\n')
+                          .map((l) => l.trim())
+                          .where((l) => l.isNotEmpty)
+                          .lastOrNull ?? rawTool;
+                      var cleanTool = activeLine
+                          .replaceAll(RegExp(r'^[⚙️✓\s]+'), '')
+                          .replaceAll(RegExp(r'\.{2,}'), '…')
+                          .trim();
+                      if (cleanTool.endsWith('…')) {
+                        cleanTool = cleanTool.substring(0, cleanTool.length - 1).trimRight();
+                      }
+
+                      return Container(
+                        constraints: BoxConstraints(
+                          maxWidth: MediaQuery.of(context).size.width * 0.74,
+                        ),
                         padding: const EdgeInsets.symmetric(
                           horizontal: 8,
                           vertical: 4,
@@ -1469,40 +1681,60 @@ class _AiChatScreenState extends State<AiChatScreen> {
                               ),
                             ),
                             const SizedBox(width: 6),
-                            Text(
-                              turn.currentTool!,
-                              style: GoogleFonts.jetBrainsMono(
-                                fontSize: 10,
-                                fontWeight: FontWeight.w600,
-                                color: DeckColors.primaryAccent,
+                            Flexible(
+                              child: Text(
+                                cleanTool,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: GoogleFonts.jetBrainsMono(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w600,
+                                  color: DeckColors.primaryAccent,
+                                ),
                               ),
                             ),
                           ],
                         ),
-                      ),
+                      );
+                    }(),
                     ...turn.tools
                         .where((t) => t != turn.currentTool)
                         .take(8)
                         .map(
-                          (tool) => Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 7,
-                              vertical: 3,
-                            ),
-                            decoration: BoxDecoration(
-                              color: DeckColors.background,
-                              borderRadius: BorderRadius.circular(5),
-                              border:
-                                  Border.all(color: DeckColors.borderSubtle),
-                            ),
-                            child: Text(
-                              tool,
-                              style: GoogleFonts.jetBrainsMono(
-                                fontSize: 10,
-                                color: DeckColors.mutedText,
+                          (tool) {
+                            var clean = tool
+                                .replaceAll(RegExp(r'^[⚙️✓\s]+'), '')
+                                .replaceAll(RegExp(r'\.{2,}'), '…')
+                                .trim();
+                            if (clean.endsWith('…')) {
+                              clean = clean.substring(0, clean.length - 1).trimRight();
+                            }
+                            return Container(
+                              constraints: BoxConstraints(
+                                maxWidth:
+                                    MediaQuery.of(context).size.width * 0.74,
                               ),
-                            ),
-                          ),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 7,
+                                vertical: 3,
+                              ),
+                              decoration: BoxDecoration(
+                                color: DeckColors.background,
+                                borderRadius: BorderRadius.circular(5),
+                                border:
+                                    Border.all(color: DeckColors.borderSubtle),
+                              ),
+                              child: Text(
+                                clean,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: GoogleFonts.jetBrainsMono(
+                                  fontSize: 10,
+                                  color: DeckColors.mutedText,
+                                ),
+                              ),
+                            );
+                          },
                         ),
                   ],
                 ),
@@ -1518,10 +1750,19 @@ class _AiChatScreenState extends State<AiChatScreen> {
                     height: 1.45,
                   ),
                 )
-              else if (turn.status == AiTurnStatus.streaming)
+              else if (isStreamingCard)
                 const Text(
                   'Waiting for Antigravity response stream...',
                   style: TextStyle(
+                    fontSize: 12,
+                    fontStyle: FontStyle.italic,
+                    color: DeckColors.mutedText,
+                  ),
+                )
+              else if (turn.tools.isNotEmpty)
+                Text(
+                  'Tool actions executed (${turn.tools.length} tool${turn.tools.length > 1 ? "s" : ""}).',
+                  style: const TextStyle(
                     fontSize: 12,
                     fontStyle: FontStyle.italic,
                     color: DeckColors.mutedText,

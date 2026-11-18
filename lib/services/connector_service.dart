@@ -954,8 +954,17 @@ class ConnectorService {
           continue;
         }
 
-        await for (final line
-            in resp.transform(utf8.decoder).transform(const LineSplitter())) {
+        final lineStream = resp
+            .transform(utf8.decoder)
+            .transform(const LineSplitter())
+            .timeout(
+              const Duration(seconds: 15),
+              onTimeout: (sink) {
+                sink.close();
+              },
+            );
+
+        await for (final line in lineStream) {
           final trimmed = line.trim();
           if (trimmed.isEmpty) continue;
           try {

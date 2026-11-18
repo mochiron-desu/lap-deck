@@ -356,6 +356,25 @@ void main() {
     expect(turn.prompt, 'Run flutter test');
     expect(turn.tools, ['run_command', 'read_file']);
     expect(turn.status, AiTurnStatus.completed);
+
+    final streamingTurn = AiConversationTurn.fromJson({
+      'step_index': 0,
+      'prompt': 'set it up on windows laptop',
+      'response': '',
+      'thinking': 'Checking for Windows setup instructions...',
+      'tools': ['run_command', 'read_file'],
+      'status': 'streaming',
+    });
+    expect(streamingTurn.status, AiTurnStatus.streaming);
+    expect(streamingTurn.status.label, 'IN PROGRESS');
+
+    // Deserializing with copyWith status change on completion
+    final finalizedTurn = streamingTurn.copyWith(
+      status: AiTurnStatus.completed,
+      clearCurrentTool: true,
+    );
+    expect(finalizedTurn.status, AiTurnStatus.completed);
+    expect(finalizedTurn.status.label, 'COMPLETED');
   });
 
   test('OtaUpdateInfo compares installed and remote Git commit SHAs accurately', () {
