@@ -18,11 +18,26 @@ class StorageService {
   static const String defaultConnectorSecret = 'c9a6c340f06ed1536fc3ff6e822df3e7';
 
   /// Optional compile-time seeded SSH private key (`--dart-define=LAPDECK_DEFAULT_SSH_KEY=...`).
+  /// Supports raw PEM or base64-encoded PEM (to avoid CLI argument splitting on newlines).
   /// Private keys are stored in Android Keystore via FlutterSecureStorage and never hardcoded in Git.
-  static const String defaultPersonalKey = String.fromEnvironment(
-    'LAPDECK_DEFAULT_SSH_KEY',
-    defaultValue: '',
-  );
+  static String get defaultPersonalKey {
+    const raw = String.fromEnvironment(
+      'LAPDECK_DEFAULT_SSH_KEY',
+      defaultValue: '',
+    );
+    if (raw.trim().isEmpty) return '';
+    final trimmed = raw.trim();
+    if (trimmed.contains('BEGIN OPENSSH') || trimmed.contains('BEGIN RSA')) {
+      return trimmed;
+    }
+    try {
+      final decoded = utf8.decode(base64.decode(trimmed));
+      if (decoded.contains('BEGIN OPENSSH') || decoded.contains('BEGIN RSA')) {
+        return decoded.trim();
+      }
+    } catch (_) {}
+    return trimmed;
+  }
 
   final SharedPreferences _prefs;
   final FlutterSecureStorage _secureStorage;

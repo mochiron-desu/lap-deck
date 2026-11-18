@@ -45,10 +45,14 @@ jobs:
           COMMIT_SHA=$(git rev-parse HEAD)
           SHORT_SHA=$(git rev-parse --short HEAD)
           BRANCH_NAME=${GITHUB_REF_NAME}
+          B64_KEY=""
+          if [ -n "${DEFAULT_SSH_KEY}" ]; then
+            B64_KEY=$(echo -n "${DEFAULT_SSH_KEY}" | base64 | tr -d '\n')
+          fi
           flutter build apk --release \
             --dart-define=GIT_COMMIT_SHA=${COMMIT_SHA} \
             --dart-define=GIT_BRANCH=${BRANCH_NAME} \
-            --dart-define=LAPDECK_DEFAULT_SSH_KEY="${DEFAULT_SSH_KEY}"
+            --dart-define=LAPDECK_DEFAULT_SSH_KEY="${B64_KEY}"
           cp build/app/outputs/flutter-apk/app-release.apk lapdeck-hotfix.apk
           cat <<EOF > version.json
           {
