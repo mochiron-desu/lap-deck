@@ -40,14 +40,15 @@ class StorageService {
   }
 
   Future<void> _seedDefaultCredentials() async {
-    if (defaultPersonalKey.isNotEmpty) {
-      final cred1 = await getHostCredential('host-surajworklaptop');
-      if (cred1 == null || cred1.isEmpty) {
-        await saveHostCredential('host-surajworklaptop', defaultPersonalKey);
+    if (defaultPersonalKey.trim().isNotEmpty) {
+      final key = defaultPersonalKey.trim();
+      final cred1 = await _secureStorage.read(key: '$_secKeyPrefix' 'host-surajworklaptop');
+      if (cred1 == null || cred1.trim().isEmpty) {
+        await saveHostCredential('host-surajworklaptop', key);
       }
-      final cred2 = await getHostCredential('host-mochirondesu');
-      if (cred2 == null || cred2.isEmpty) {
-        await saveHostCredential('host-mochirondesu', defaultPersonalKey);
+      final cred2 = await _secureStorage.read(key: '$_secKeyPrefix' 'host-mochirondesu');
+      if (cred2 == null || cred2.trim().isEmpty) {
+        await saveHostCredential('host-mochirondesu', key);
       }
     }
     final savedToken = await _secureStorage.read(key: _keyGlobalConnectorToken);
@@ -107,9 +108,12 @@ class StorageService {
   /// Retrieves securely saved credential.
   Future<String?> getHostCredential(String hostId) async {
     final cred = await _secureStorage.read(key: '$_secKeyPrefix$hostId');
-    if (cred != null && cred.isNotEmpty) return cred;
-    // Default fallback to personal ed25519 key if none stored
-    return defaultPersonalKey;
+    if (cred != null && cred.trim().isNotEmpty) return cred.trim();
+    // Default fallback to compile-time personal ed25519 key if none stored
+    if (defaultPersonalKey.trim().isNotEmpty) {
+      return defaultPersonalKey.trim();
+    }
+    return null;
   }
 
   /// Securely saves Telegram Antigravity Connector token (per host or globally).
