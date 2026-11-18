@@ -4,9 +4,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/host_target.dart';
 
 class StorageService {
-  static const String _keyHosts = 'lapdeck_saved_hosts_v1';
+  static const String _keyHosts = 'lapdeck_saved_hosts_v2';
   static const String _keyActiveHost = 'lapdeck_active_host_id';
   static const String _secKeyPrefix = 'lapdeck_cred_';
+
+  static const String defaultPersonalKey = String.fromEnvironment('LAPDECK_DEFAULT_SSH_KEY', defaultValue: '');
 
   final SharedPreferences _prefs;
   final FlutterSecureStorage _secureStorage;
@@ -18,7 +20,20 @@ class StorageService {
     const secureStorage = FlutterSecureStorage(
       aOptions: AndroidOptions(),
     );
-    return StorageService(prefs, secureStorage);
+    final service = StorageService(prefs, secureStorage);
+    await service._seedDefaultCredentials();
+    return service;
+  }
+
+  Future<void> _seedDefaultCredentials() async {
+    final cred1 = await getHostCredential('host-surajworklaptop');
+    if (cred1 == null || cred1.isEmpty) {
+      await saveHostCredential('host-surajworklaptop', defaultPersonalKey);
+    }
+    final cred2 = await getHostCredential('host-mochirondesu');
+    if (cred2 == null || cred2.isEmpty) {
+      await saveHostCredential('host-mochirondesu', defaultPersonalKey);
+    }
   }
 
   /// Loads all saved hosts. If none are stored, seeds default laptops.
@@ -61,7 +76,10 @@ class StorageService {
 
   /// Retrieves securely saved credential.
   Future<String?> getHostCredential(String hostId) async {
-    return await _secureStorage.read(key: '$_secKeyPrefix$hostId');
+    final cred = await _secureStorage.read(key: '$_secKeyPrefix$hostId');
+    if (cred != null && cred.isNotEmpty) return cred;
+    // Default fallback to personal ed25519 key if none stored
+    return defaultPersonalKey;
   }
 
   /// Deletes credential on host removal.

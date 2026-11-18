@@ -1,7 +1,7 @@
 import 'dart:convert';
 
 enum HostOs { linux, windows, macos }
-enum AuthMethod { tailscaleSsh, privateKey, password }
+enum AuthMethod { privateKey, password, tailscaleSsh }
 
 class HostTarget {
   final String id;
@@ -12,7 +12,7 @@ class HostTarget {
   final AuthMethod authMethod;
   final HostOs os;
   final String? directIp;
-  final String? privateKey; // In-memory or key alias
+  final String? privateKey;
   final bool isDirect;
   final int? pingMs;
   final bool isOnline;
@@ -25,7 +25,7 @@ class HostTarget {
     required this.tailscaleIp,
     this.port = 22,
     required this.username,
-    this.authMethod = AuthMethod.tailscaleSsh,
+    this.authMethod = AuthMethod.privateKey,
     required this.os,
     this.directIp,
     this.privateKey,
@@ -94,7 +94,7 @@ class HostTarget {
       username: map['username'] ?? '',
       authMethod: AuthMethod.values.firstWhere(
         (e) => e.name == map['authMethod'],
-        orElse: () => AuthMethod.tailscaleSsh,
+        orElse: () => AuthMethod.privateKey,
       ),
       os: HostOs.values.firstWhere(
         (e) => e.name == map['os'],
@@ -116,12 +116,13 @@ class HostTarget {
       tailscaleIp: '100.118.7.117',
       port: 22,
       username: 'surajwork',
-      authMethod: AuthMethod.tailscaleSsh,
+      authMethod: AuthMethod.privateKey,
       os: HostOs.linux,
-      description: 'Primary Linux Dev Rig • Ubuntu 24.04 LTS',
+      directIp: '192.168.29.112',
+      description: 'Primary Linux Rig • Ubuntu 24.04 LTS',
       isOnline: true,
       isDirect: true,
-      pingMs: 1,
+      pingMs: 52,
     ),
     const HostTarget(
       id: 'host-mochirondesu',
@@ -129,10 +130,10 @@ class HostTarget {
       tailscaleIp: '100.79.206.82',
       port: 22,
       username: 'suraj',
-      authMethod: AuthMethod.tailscaleSsh,
+      authMethod: AuthMethod.privateKey,
       os: HostOs.windows,
       directIp: '192.168.29.61',
-      description: 'Secondary Peer Rig • Windows 11 / WSL2',
+      description: 'Secondary Rig • Windows 11 / WSL2',
       isOnline: true,
       isDirect: true,
       pingMs: 4,

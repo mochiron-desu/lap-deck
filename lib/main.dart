@@ -3,7 +3,8 @@ import 'package:flutter/services.dart';
 import 'theme/deck_theme.dart';
 import 'services/storage_service.dart';
 import 'services/ssh_service.dart';
-import 'ui/screens/deck_screen.dart';
+import 'services/terminal_session_controller.dart';
+import 'ui/screens/app_scaffold.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -20,21 +21,25 @@ void main() async {
 
   final storage = await StorageService.init();
   final sshService = SshService();
+  final terminalController = TerminalSessionController(sshService);
 
   runApp(LapDeckApp(
     storage: storage,
     sshService: sshService,
+    terminalController: terminalController,
   ));
 }
 
 class LapDeckApp extends StatelessWidget {
   final StorageService storage;
   final SshService sshService;
+  final TerminalSessionController terminalController;
 
   const LapDeckApp({
     super.key,
     required this.storage,
     required this.sshService,
+    required this.terminalController,
   });
 
   @override
@@ -43,9 +48,10 @@ class LapDeckApp extends StatelessWidget {
       title: 'LapDeck',
       debugShowCheckedModeBanner: false,
       theme: DeckTheme.darkTheme,
-      home: DeckScreen(
+      home: AppScaffold(
         storage: storage,
         sshService: sshService,
+        terminalController: terminalController,
       ),
     );
   }

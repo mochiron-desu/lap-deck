@@ -191,31 +191,17 @@ class _HostRackCard extends StatelessWidget {
                       Row(
                         children: [
                           Text(
-                            'TS IP: ',
-                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              fontSize: 10,
-                              color: DeckColors.textMuted,
-                            ),
-                          ),
-                          Text(
-                            host.tailscaleIp,
+                            'TS: ${host.tailscaleIp}',
                             style: Theme.of(context).textTheme.bodySmall?.copyWith(
                               fontSize: 11,
                               color: DeckColors.textHigh,
                               fontWeight: FontWeight.w600,
                             ),
                           ),
-                          Text(
-                            ' :${host.port}',
-                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              fontSize: 10,
-                              color: DeckColors.textMuted,
-                            ),
-                          ),
                           if (host.directIp != null) ...[
-                            const SizedBox(width: 8),
+                            const SizedBox(width: 6),
                             Text(
-                              '• LAN: ${host.directIp}',
+                              '(${host.directIp})',
                               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                                 fontSize: 10,
                                 color: DeckColors.meshCyan,
