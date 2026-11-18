@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'package:dartssh2/dartssh2.dart';
 import '../models/host_target.dart';
+import '../models/remote_file_item.dart';
 import '../models/vitals_data.dart';
 import 'app_logger.dart';
 
@@ -511,7 +512,8 @@ class SshService {
     if (host.os == HostOs.windows) {
       script = '''
 Write-Output "===LAPDECK_VITALS==="
-\$cpu = [Math]::Round((Get-CimInstance Win32_Processor | Measure-Object -Property LoadPercentage -Average).Average, 1)
+\$perf = Get-CimInstance Win32_PerfFormattedData_PerfOS_Processor -Filter "Name='_Total'" -ErrorAction SilentlyContinue
+\$cpu = if (\$perf) { [Math]::Round(\$perf.PercentProcessorTime, 1) } else { [Math]::Round(((Get-CimInstance Win32_Processor | Measure-Object -Property LoadPercentage -Average).Average), 1) }
 Write-Output "CPU_USAGE:\$cpu"
 Write-Output "CPU_LOAD:\$cpu%"
 \$os = Get-CimInstance Win32_OperatingSystem
@@ -528,10 +530,15 @@ Write-Output "MEM_INFO:\$usedMem/\$totMem GB (\$memPct%)"
 Write-Output "DISK_INFO:\${usedDisk}G/\${totDisk}G (\$diskPct%)"
 \$up = (Get-Date) - \$os.LastBootUpTime
 Write-Output "UPTIME:\$([int]\$up.TotalHours) hours, \$(\$up.Minutes) minutes"
+\$locked = Get-Process -Name LogonUI,LockApp -ErrorAction SilentlyContinue
+if (\$locked) { Write-Output "SESSION_LOCK:LOCKED" } else { Write-Output "SESSION_LOCK:UNLOCKED" }
 Write-Output "===LAPDECK_PROCESSES==="
-Get-Process | Sort-Object CPU -Descending | Select-Object -First 8 | ForEach-Object {
-    \$pCpu = if (\$_.CPU) { [Math]::Round(\$_.CPU, 1) } else { 0 }
-    "\$(\$_.Id) \$(\$_.ProcessName) \$pCpu 0.0 \$(\$_.ProcessName)"
+\$cores = [Math]::Max((Get-CimInstance Win32_ComputerSystem).NumberOfLogicalProcessors, 1)
+\$totMemBytes = \$os.TotalVisibleMemorySize * 1KB
+Get-CimInstance Win32_PerfFormattedData_PerfProc_Process -ErrorAction SilentlyContinue | Where-Object { \$_.Name -ne '_Total' -and \$_.Name -ne 'Idle' } | Sort-Object PercentProcessorTime -Descending | Select-Object -First 8 | ForEach-Object {
+    \$pCpu = [Math]::Round(\$_.PercentProcessorTime / \$cores, 1)
+    \$pMem = if (\$totMemBytes -gt 0) { [Math]::Round((\$_.WorkingSetPrivate / \$totMemBytes) * 100, 1) } else { 0.0 }
+    "\$(\$_.IDProcess) \$(\$_.Name) \$pCpu \$pMem \$(\$_.Name)"
 }
 Write-Output "===LAPDECK_LAPDOG==="
 Write-Output "LAPDOG_NOT_FOUND"
@@ -544,6 +551,27 @@ echo "CPU_LOAD:\$(uptime 2>/dev/null | awk -F'load average:' '{ print \$2 }' | c
 echo "MEM_INFO:\$(free -m 2>/dev/null | awk '/Mem:/ { printf "%.1f/%.1f GB (%.0f%%)", \$3/1024, \$2/1024, (\$3/\$2)*100 }' || echo '0.0/0.0 GB (0%)')"
 echo "DISK_INFO:\$(df -h / 2>/dev/null | awk 'NR==2 { printf "%s/%s (%s)", \$3, \$2, \$5 }' || echo '0/0 GB (0%)')"
 echo "UPTIME:\$(uptime -p 2>/dev/null || uptime 2>/dev/null | awk -F'up ' '{print \$2}' | cut -d, -f1 || echo 'Active')"
+if [ -n "\$DBUS_SESSION_BUS_ADDRESS" ] || [ -e "/run/user/\$(id -u)/bus" ]; then
+  export DBUS_SESSION_BUS_ADDRESS="\${DBUS_SESSION_BUS_ADDRESS:-unix:path=/run/user/\$(id -u)/bus}"
+fi
+LOCKED_FOUND=0
+if gdbus call --session --dest org.gnome.ScreenSaver --object-path /org/gnome/ScreenSaver --method org.gnome.ScreenSaver.GetActive 2>/dev/null | grep -q "true"; then
+  LOCKED_FOUND=1
+else
+  for sid in \$(loginctl list-sessions --no-legend 2>/dev/null | awk '{print \$1}'); do
+    stype=\$(loginctl show-session "\$sid" -p Type --value 2>/dev/null)
+    locked=\$(loginctl show-session "\$sid" -p LockedHint --value 2>/dev/null)
+    if { [ "\$stype" = "wayland" ] || [ "\$stype" = "x11" ]; } && [ "\$locked" = "yes" ]; then
+      LOCKED_FOUND=1
+      break
+    fi
+  done
+fi
+if [ "\$LOCKED_FOUND" -eq 1 ]; then
+  echo "SESSION_LOCK:LOCKED"
+else
+  echo "SESSION_LOCK:UNLOCKED"
+fi
 echo "===LAPDECK_PROCESSES==="
 ps -eo pid,user,%cpu,%mem,comm --sort=-%cpu 2>/dev/null | head -n 9 | tail -n +2 || true
 echo "===LAPDECK_LAPDOG==="
@@ -603,6 +631,7 @@ lapdog status 2>/dev/null || ~/.local/bin/lapdog status 2>/dev/null || echo "LAP
     double diskPercent = 0.0;
     String diskUsage = '0 / 0 GB';
     String uptime = 'Online';
+    bool? isScreenLocked;
 
     final lines = output.split('\n');
     for (final line in lines) {
@@ -631,6 +660,13 @@ lapdog status 2>/dev/null || ~/.local/bin/lapdog status 2>/dev/null || echo "LAP
         final v =
             line.replaceFirst('UPTIME:', '').replaceFirst('up ', '').trim();
         if (v.isNotEmpty) uptime = v;
+      } else if (line.startsWith('SESSION_LOCK:')) {
+        final v = line.replaceFirst('SESSION_LOCK:', '').trim();
+        if (v == 'LOCKED') {
+          isScreenLocked = true;
+        } else if (v == 'UNLOCKED') {
+          isScreenLocked = false;
+        }
       }
     }
 
@@ -644,6 +680,7 @@ lapdog status 2>/dev/null || ~/.local/bin/lapdog status 2>/dev/null || echo "LAP
       uptime: uptime,
       timestamp: timestamp,
       isVerified: true,
+      isScreenLocked: isScreenLocked,
     );
   }
 
@@ -751,6 +788,350 @@ lapdog status 2>/dev/null || ~/.local/bin/lapdog status 2>/dev/null || echo "LAP
       );
     }
     return _parseLapdogOutput(res.output, now);
+  }
+
+  /// Checks if the workstation graphical session is currently locked or unlocked.
+  Future<bool?> checkWorkstationLockState(
+    HostTarget host, {
+    String? secret,
+  }) async {
+    final String cmd;
+    if (host.os == HostOs.windows) {
+      cmd = r'''
+$locked = Get-Process -Name LogonUI,LockApp -ErrorAction SilentlyContinue
+if ($locked) { Write-Output "LOCKED" } else { Write-Output "UNLOCKED" }
+''';
+    } else if (host.os == HostOs.linux) {
+      cmd = '''
+if [ -n "\$DBUS_SESSION_BUS_ADDRESS" ] || [ -e "/run/user/\$(id -u)/bus" ]; then
+  export DBUS_SESSION_BUS_ADDRESS="\${DBUS_SESSION_BUS_ADDRESS:-unix:path=/run/user/\$(id -u)/bus}"
+fi
+if gdbus call --session --dest org.gnome.ScreenSaver --object-path /org/gnome/ScreenSaver --method org.gnome.ScreenSaver.GetActive 2>/dev/null | grep -q "true"; then
+  echo "LOCKED"
+  exit 0
+fi
+for sid in \$(loginctl list-sessions --no-legend 2>/dev/null | awk '{print \$1}'); do
+  stype=\$(loginctl show-session "\$sid" -p Type --value 2>/dev/null)
+  locked=\$(loginctl show-session "\$sid" -p LockedHint --value 2>/dev/null)
+  if { [ "\$stype" = "wayland" ] || [ "\$stype" = "x11" ]; } && [ "\$locked" = "yes" ]; then
+    echo "LOCKED"
+    exit 0
+  fi
+done
+echo "UNLOCKED"
+''';
+    } else {
+      cmd =
+          'ioreg -n Root -d1 -a 2>/dev/null | grep -q "<key>CGSSessionScreenIsLocked</key>" && echo "LOCKED" || echo "UNLOCKED"';
+    }
+
+    final res = await executeCommand(
+      host: host,
+      command: cmd,
+      password: host.authMethod == AuthMethod.password ? secret : null,
+      privateKeyPem: host.authMethod == AuthMethod.privateKey ? secret : null,
+      executionTimeout: const Duration(seconds: 5),
+    );
+
+    if (!res.isSuccess) return null;
+    final out = res.output.trim();
+    if (out.contains('LOCKED')) return true;
+    if (out.contains('UNLOCKED')) return false;
+    return null;
+  }
+
+  /// Captures a screengrab from the host's primary graphical display.
+  Future<Uint8List?> captureScreengrab(
+    HostTarget host, {
+    String? secret,
+    Duration timeout = const Duration(seconds: 12),
+  }) async {
+    final String cmd;
+    if (host.os == HostOs.windows) {
+      cmd = r'''
+$code = @'
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+$s = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+$b = New-Object System.Drawing.Bitmap($s.Width, $s.Height)
+$g = [System.Drawing.Graphics]::FromImage($b)
+$g.CopyFromScreen($s.Location, [System.Drawing.Point]::Empty, $s.Size)
+$tmp = "$env:TEMP\lapdeck_screen.jpg"
+$b.Save($tmp, [System.Drawing.Imaging.ImageFormat]::Jpeg)
+$g.Dispose()
+$b.Dispose()
+'@
+$tmpScript = "$env:TEMP\lapdeck_grab_$([DateTimeOffset]::UtcNow.ToUnixTimeSeconds()).ps1"
+Set-Content -Path $tmpScript -Value $code -Encoding Ascii
+try {
+  & powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File $tmpScript 2>$null
+} catch {}
+$img = "$env:TEMP\lapdeck_screen.jpg"
+if (Test-Path $img) {
+  [Convert]::ToBase64String([System.IO.File]::ReadAllBytes($img))
+  Remove-Item $img -Force -ErrorAction SilentlyContinue
+} else {
+  Write-Output "SCREENGRAB_FAILED"
+}
+Remove-Item $tmpScript -Force -ErrorAction SilentlyContinue
+''';
+    } else if (host.os == HostOs.linux) {
+      cmd = '''
+export DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/\$(id -u)/bus"
+TMP_OUT="/tmp/lapdeck_screengrab_\$\$.jpg"
+DISPLAY=:0 ffmpeg -f x11grab -i :0.0 -frames:v 1 -update 1 -y "\$TMP_OUT" 2>/dev/null || (gnome-screenshot -f "\$TMP_OUT" 2>/dev/null)
+if [ -f "\$TMP_OUT" ]; then
+  base64 -w 0 "\$TMP_OUT" 2>/dev/null || base64 "\$TMP_OUT"
+  rm -f "\$TMP_OUT"
+else
+  echo "SCREENGRAB_FAILED"
+fi
+''';
+    } else {
+      cmd = '''
+TMP_OUT="/tmp/lapdeck_screengrab_\$\$.jpg"
+screencapture -x -t jpg "\$TMP_OUT" 2>/dev/null
+if [ -f "\$TMP_OUT" ]; then
+  base64 -b 0 "\$TMP_OUT" 2>/dev/null || base64 "\$TMP_OUT"
+  rm -f "\$TMP_OUT"
+else
+  echo "SCREENGRAB_FAILED"
+fi
+''';
+    }
+
+    final res = await executeCommand(
+      host: host,
+      command: cmd,
+      password: host.authMethod == AuthMethod.password ? secret : null,
+      privateKeyPem: host.authMethod == AuthMethod.privateKey ? secret : null,
+      executionTimeout: timeout,
+    );
+
+    if (!res.isSuccess) return null;
+    final out = res.output.trim();
+    if (out.isEmpty || out.contains('SCREENGRAB_FAILED')) return null;
+
+    try {
+      final sanitized = out.replaceAll(RegExp(r'\s+'), '');
+      return base64Decode(sanitized);
+    } catch (e, st) {
+      AppLogger.warning('SshService', 'Failed to decode screengrab base64: $e', e, st);
+      return null;
+    }
+  }
+
+  Future<SSHClient> _getClientForHost(
+    HostTarget host, {
+    String? secret,
+    Duration timeout = const Duration(seconds: 4),
+  }) async {
+    final cached = _cmdClientPool[host.id];
+    if (cached != null && !cached.isClosed) {
+      return cached;
+    }
+    try {
+      cached?.close();
+    } catch (_) {}
+    _cmdClientPool.remove(host.id);
+
+    final password = host.authMethod == AuthMethod.password ? secret : null;
+    final privateKeyPem = host.authMethod == AuthMethod.privateKey ? secret : null;
+
+    SSHClient client;
+    try {
+      client = await _connectToIp(
+        ip: host.tailscaleIp,
+        port: host.port,
+        username: host.username,
+        password: password,
+        privateKeyPem: privateKeyPem,
+        timeout: timeout,
+      );
+    } catch (_) {
+      if (host.directIp != null && host.directIp!.isNotEmpty) {
+        client = await _connectToIp(
+          ip: host.directIp!,
+          port: host.port,
+          username: host.username,
+          password: password,
+          privateKeyPem: privateKeyPem,
+          timeout: timeout,
+        );
+      } else {
+        rethrow;
+      }
+    }
+    _cmdClientPool[host.id] = client;
+    return client;
+  }
+
+  /// Lists items in [remotePath] using SFTP subsystem.
+  Future<List<RemoteFileItem>> listRemoteFiles(
+    HostTarget host,
+    String remotePath, {
+    String? secret,
+  }) async {
+    final client = await _getClientForHost(host, secret: secret);
+    final sftp = await client.sftp();
+    try {
+      final names = await sftp.listdir(remotePath);
+      final items = <RemoteFileItem>[];
+      for (final n in names) {
+        if (n.filename == '.' || n.filename == '..') continue;
+        final isDir = n.attr.isDirectory;
+        final subPath = remotePath == '/' || remotePath == '.'
+            ? (remotePath == '.' ? n.filename : '/${n.filename}')
+            : (remotePath.endsWith('/')
+                ? '$remotePath${n.filename}'
+                : '$remotePath/${n.filename}');
+        DateTime? modTime;
+        if (n.attr.modifyTime != null) {
+          modTime = DateTime.fromMillisecondsSinceEpoch(
+            n.attr.modifyTime! * 1000,
+          );
+        }
+        items.add(RemoteFileItem(
+          name: n.filename,
+          path: subPath,
+          isDirectory: isDir,
+          size: n.attr.size ?? 0,
+          modifyTime: modTime,
+          permissions: n.attr.mode?.value,
+        ));
+      }
+      items.sort((a, b) {
+        if (a.isDirectory && !b.isDirectory) return -1;
+        if (!a.isDirectory && b.isDirectory) return 1;
+        return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+      });
+      return items;
+    } finally {
+      await sftp.close();
+    }
+  }
+
+  /// Resolves the absolute path for [remotePath] via SFTP.
+  Future<String> resolveRemoteAbsolutePath(
+    HostTarget host,
+    String remotePath, {
+    String? secret,
+  }) async {
+    final client = await _getClientForHost(host, secret: secret);
+    final sftp = await client.sftp();
+    try {
+      return await sftp.absolute(remotePath);
+    } finally {
+      await sftp.close();
+    }
+  }
+
+  /// Downloads a remote file to [localDestinationPath] using SFTP stream.
+  Future<void> downloadRemoteFile(
+    HostTarget host,
+    String remotePath,
+    String localDestinationPath, {
+    String? secret,
+    void Function(int bytesReceived, int totalBytes)? onProgress,
+  }) async {
+    final client = await _getClientForHost(host, secret: secret);
+    final sftp = await client.sftp();
+    try {
+      final stat = await sftp.stat(remotePath);
+      final total = stat.size ?? 0;
+      final localFile = File(localDestinationPath);
+      if (await localFile.exists()) {
+        await localFile.delete();
+      }
+      final sink = localFile.openWrite();
+      try {
+        await sftp.download(
+          remotePath,
+          sink,
+          onProgress: (received) {
+            onProgress?.call(received, total);
+          },
+        );
+      } finally {
+        await sink.flush();
+        await sink.close();
+      }
+    } finally {
+      await sftp.close();
+    }
+  }
+
+  /// Uploads a local file from [localSourcePath] to [remoteDestinationPath] using SFTP stream.
+  Future<void> uploadRemoteFile(
+    HostTarget host,
+    String localSourcePath,
+    String remoteDestinationPath, {
+    String? secret,
+    void Function(int bytesSent, int totalBytes)? onProgress,
+  }) async {
+    final client = await _getClientForHost(host, secret: secret);
+    final sftp = await client.sftp();
+    try {
+      final localFile = File(localSourcePath);
+      final total = await localFile.length();
+      final remoteFile = await sftp.open(
+        remoteDestinationPath,
+        mode: SftpFileOpenMode.write |
+            SftpFileOpenMode.create |
+            SftpFileOpenMode.truncate,
+      );
+      try {
+        final stream = localFile.openRead().map((chunk) {
+          return chunk is Uint8List ? chunk : Uint8List.fromList(chunk);
+        });
+        final writer = remoteFile.write(
+          stream,
+          onProgress: (sent) {
+            onProgress?.call(sent, total);
+          },
+        );
+        await writer.done;
+      } finally {
+        await remoteFile.close();
+      }
+    } finally {
+      await sftp.close();
+    }
+  }
+
+  /// Creates a directory on the remote host via SFTP.
+  Future<void> createRemoteDirectory(
+    HostTarget host,
+    String remotePath, {
+    String? secret,
+  }) async {
+    final client = await _getClientForHost(host, secret: secret);
+    final sftp = await client.sftp();
+    try {
+      await sftp.mkdir(remotePath);
+    } finally {
+      await sftp.close();
+    }
+  }
+
+  /// Deletes a file or directory on the remote host via SFTP.
+  Future<void> deleteRemoteItem(
+    HostTarget host,
+    String remotePath, {
+    required bool isDirectory,
+    String? secret,
+  }) async {
+    final client = await _getClientForHost(host, secret: secret);
+    final sftp = await client.sftp();
+    try {
+      if (isDirectory) {
+        await sftp.rmdir(remotePath);
+      } else {
+        await sftp.remove(remotePath);
+      }
+    } finally {
+      await sftp.close();
+    }
   }
 
   Future<SSHClient> _connectToIp({

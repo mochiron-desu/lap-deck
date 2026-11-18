@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import '../../models/host_target.dart';
+import '../../models/notification_settings.dart';
 import '../../models/vitals_data.dart';
 import '../../services/ssh_service.dart';
 import '../../services/storage_service.dart';
 import '../../services/terminal_session_controller.dart';
 import '../../services/connector_service.dart';
+import '../../services/notification_service.dart';
+import '../../services/ota_update_service.dart';
 import '../../services/app_logger.dart';
 import 'home_tab.dart';
 import 'devices_tab.dart';
@@ -16,6 +19,8 @@ class AppScaffold extends StatefulWidget {
   final SshService sshService;
   final TerminalSessionController terminalController;
   final ConnectorService connectorService;
+  final NotificationService notificationService;
+  final OtaUpdateService otaUpdateService;
 
   AppScaffold({
     super.key,
@@ -23,7 +28,18 @@ class AppScaffold extends StatefulWidget {
     required this.sshService,
     required this.terminalController,
     ConnectorService? connectorService,
-  }) : connectorService = connectorService ?? ConnectorService();
+    NotificationService? notificationService,
+    OtaUpdateService? otaUpdateService,
+  }) : connectorService = connectorService ?? ConnectorService(),
+       notificationService =
+           notificationService ?? NotificationService(storage),
+       otaUpdateService =
+           otaUpdateService ??
+           OtaUpdateService(
+             storage: storage,
+             notificationService:
+                 notificationService ?? NotificationService(storage),
+           );
 
   @override
   State<AppScaffold> createState() => _AppScaffoldState();
@@ -40,6 +56,7 @@ class _AppScaffoldState extends State<AppScaffold> with WidgetsBindingObserver {
   bool _isRefreshing = false;
   bool _localTailscaleActive = false;
   DateTime? _lastNetworkCheckAt;
+  OtaUpdateInfo? _otaUpdateInfo;
 
   @override
   void initState() {
@@ -54,7 +71,17 @@ class _AppScaffoldState extends State<AppScaffold> with WidgetsBindingObserver {
     }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _refreshNetworkState();
+      _checkOtaUpdatesInBackground();
     });
+  }
+
+  Future<void> _checkOtaUpdatesInBackground() async {
+    try {
+      final info = await widget.otaUpdateService.checkForGitUpdates();
+      if (mounted) {
+        setState(() => _otaUpdateInfo = info);
+      }
+    } catch (_) {}
   }
 
   @override
@@ -216,6 +243,15 @@ class _AppScaffoldState extends State<AppScaffold> with WidgetsBindingObserver {
           }
         }
       }
+
+      // 3. Evaluate state transitions for toggleable native Android notifications
+      await widget.notificationService.processHostUpdates(
+        _hosts,
+        lapdogByHost: {
+          for (final entry in _telemetryByHost.entries)
+            entry.key: entry.value.lapdog,
+        },
+      );
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -323,8 +359,14 @@ class _AppScaffoldState extends State<AppScaffold> with WidgetsBindingObserver {
               storage: widget.storage,
               sshService: widget.sshService,
               terminalController: widget.terminalController,
+              connectorService: widget.connectorService,
+              notificationService: widget.notificationService,
+              otaUpdateInfo: _otaUpdateInfo,
               onSelectHost: _handleSelectHost,
-              onRefresh: () => _refreshNetworkState(),
+              onRefresh: () {
+                _refreshNetworkState();
+                _checkOtaUpdatesInBackground();
+              },
               onNavigateTab: (index) =>
                   setState(() => _currentTabIndex = index),
               onHostsUpdated: _reloadHosts,
@@ -349,11 +391,16 @@ class _AppScaffoldState extends State<AppScaffold> with WidgetsBindingObserver {
               storage: widget.storage,
               connectorService: widget.connectorService,
               sshService: widget.sshService,
+              notificationService: widget.notificationService,
               onSelectHost: _handleSelectHost,
             ),
             // Tab 3: Settings
             SettingsTab(
               storage: widget.storage,
+              notificationService: widget.notificationService,
+              otaUpdateService: widget.otaUpdateService,
+              sshService: widget.sshService,
+              hosts: _hosts,
             ),
           ],
         ),

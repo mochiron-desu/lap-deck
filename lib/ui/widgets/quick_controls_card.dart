@@ -73,94 +73,100 @@ class QuickControlsCard extends StatelessWidget {
           ),
           const SizedBox(height: 14),
 
-          // Action Grid
-          Row(
-            children: [
-              Expanded(
-                child: _buildControlButton(
-                  context,
-                  icon: Icons.lock_outline,
-                  label: lockTitle,
-                  subtitle: 'Lock $targetName',
-                  color: DeckColors.primaryAccent,
-                  onTap: () => _confirmAction(
+          // Action Grid (normalized equal dimensions)
+          IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(
+                  child: _buildControlButton(
                     context,
-                    title: '$lockTitle on $targetName?',
-                    message: host?.lockConsequenceDescription ??
-                        'Locks the active graphical user session on $targetName.',
-                    confirmLabel: 'Lock $targetName',
-                    confirmColor: DeckColors.primaryAccent,
-                    onConfirm: () => onTrigger(
-                      'lock-screen',
-                      lockTitle,
-                      lockCmd,
+                    icon: Icons.lock_outline,
+                    label: lockTitle,
+                    subtitle: 'Lock $targetName',
+                    color: DeckColors.primaryAccent,
+                    onTap: () => _confirmAction(
+                      context,
+                      title: '$lockTitle on $targetName?',
+                      message: host?.lockConsequenceDescription ??
+                          'Locks the active graphical user session on $targetName.',
+                      confirmLabel: 'Lock $targetName',
+                      confirmColor: DeckColors.primaryAccent,
+                      onConfirm: () => onTrigger(
+                        'lock-screen',
+                        lockTitle,
+                        lockCmd,
+                      ),
                     ),
                   ),
                 ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _buildControlButton(
-                  context,
-                  icon: Icons.restart_alt,
-                  label: 'Restart Lapdog',
-                  subtitle: 'Reset daemon on $targetName',
-                  color: DeckColors.warning,
-                  onTap: () => onTrigger(
-                    'restart-lapdog',
-                    'Restart Lapdog',
-                    host?.os == HostOs.windows
-                        ? 'if (Get-Command lapdog -ErrorAction SilentlyContinue) { lapdog restart } else { Write-Error "Lapdog is not installed on Windows."; exit 127 }'
-                        : 'systemctl --user restart lapdog 2>/dev/null || lapdog restart 2>/dev/null',
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _buildControlButton(
+                    context,
+                    icon: Icons.restart_alt,
+                    label: 'Restart Lapdog',
+                    subtitle: 'Reset daemon on $targetName',
+                    color: DeckColors.warning,
+                    onTap: () => onTrigger(
+                      'restart-lapdog',
+                      'Restart Lapdog',
+                      host?.os == HostOs.windows
+                          ? 'if (Get-Command lapdog -ErrorAction SilentlyContinue) { lapdog restart } else { Write-Error "Lapdog is not installed on Windows."; exit 127 }'
+                          : 'systemctl --user restart lapdog 2>/dev/null || lapdog restart 2>/dev/null',
+                    ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
           const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: _buildControlButton(
-                  context,
-                  icon: Icons.sync,
-                  label: 'Sync Skills',
-                  subtitle: 'Sync mesh on $targetName',
-                  color: DeckColors.informational,
-                  onTap: () => onTrigger(
-                    'sync-skills',
-                    'Sync Skills',
-                    host?.os == HostOs.windows
-                        ? 'python -m antigravity_sync 2>\$null; exit 0'
-                        : 'python3 -m antigravity_sync 2>/dev/null || true',
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _buildControlButton(
-                  context,
-                  icon: Icons.power_settings_new,
-                  label: 'Sleep Device',
-                  subtitle: 'Suspend $targetName',
-                  color: DeckColors.error,
-                  onTap: () => _confirmAction(
+          IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(
+                  child: _buildControlButton(
                     context,
-                    title: 'Suspend $targetName?',
-                    message:
-                        'Puts $targetName (${host?.tailscaleIp ?? ""}) into system sleep mode. Physical wake or Wake-on-LAN will be required to reconnect.',
-                    confirmLabel: 'Suspend $targetName',
-                    confirmColor: DeckColors.error,
-                    onConfirm: () => onTrigger(
-                      'sleep-rig',
-                      'Sleep Device',
-                      host?.sleepDeviceCommand ??
-                          'systemctl suspend 2>/dev/null || rundll32.exe powrprof.dll,SetSuspendState 0,1,0',
+                    icon: Icons.sync,
+                    label: 'Sync Skills',
+                    subtitle: 'Sync mesh on $targetName',
+                    color: DeckColors.informational,
+                    onTap: () => onTrigger(
+                      'sync-skills',
+                      'Sync Skills',
+                      host?.os == HostOs.windows
+                          ? 'python -m antigravity_sync 2>\$null; exit 0'
+                          : 'python3 -m antigravity_sync 2>/dev/null || true',
                     ),
                   ),
                 ),
-              ),
-            ],
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _buildControlButton(
+                    context,
+                    icon: Icons.power_settings_new,
+                    label: 'Sleep Device',
+                    subtitle: 'Suspend $targetName',
+                    color: DeckColors.error,
+                    onTap: () => _confirmAction(
+                      context,
+                      title: 'Suspend $targetName?',
+                      message:
+                          'Puts $targetName (${host?.tailscaleIp ?? ""}) into system sleep mode. Physical wake or Wake-on-LAN will be required to reconnect.',
+                      confirmLabel: 'Suspend $targetName',
+                      confirmColor: DeckColors.error,
+                      onConfirm: () => onTrigger(
+                        'sleep-rig',
+                        'Sleep Device',
+                        host?.sleepDeviceCommand ??
+                            'systemctl suspend 2>/dev/null || rundll32.exe powrprof.dll,SetSuspendState 0,1,0',
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -187,7 +193,7 @@ class QuickControlsCard extends StatelessWidget {
               },
         borderRadius: BorderRadius.circular(10),
         child: Container(
-          constraints: const BoxConstraints(minHeight: 64),
+          constraints: const BoxConstraints(minHeight: 66),
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           decoration: BoxDecoration(
             border: Border.all(color: DeckColors.borderSubtle, width: 1),
@@ -195,6 +201,7 @@ class QuickControlsCard extends StatelessWidget {
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Row(
                 children: [
@@ -203,6 +210,8 @@ class QuickControlsCard extends StatelessWidget {
                   Expanded(
                     child: Text(
                       label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.labelMedium?.copyWith(
                             fontSize: 12,
                             fontWeight: FontWeight.w700,
@@ -215,6 +224,8 @@ class QuickControlsCard extends StatelessWidget {
               const SizedBox(height: 4),
               Text(
                 subtitle,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       fontSize: 11,
                       color: DeckColors.secondaryText,

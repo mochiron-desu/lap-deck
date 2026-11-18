@@ -896,6 +896,343 @@ class ConnectorService {
         };
   }
 
+  // ---------------------------------------------------------------------------
+  // In-App Antigravity AI Conversation Streaming & Session Methods
+  // ---------------------------------------------------------------------------
+
+  /// Streams an Antigravity AI turn in real-time over NDJSON (`POST /api/turn` with `stream: true`).
+  Stream<AiStreamEvent> streamAgentTurn(
+    HostTarget host, {
+    required String prompt,
+    String? conversationId,
+    String? workspace,
+    String? model,
+    String? secret,
+  }) async* {
+    final candidateIps = <String>[];
+    if (host.tailscaleIp.isNotEmpty) {
+      candidateIps.add(host.tailscaleIp);
+    }
+    if (host.directIp != null &&
+        host.directIp!.isNotEmpty &&
+        !candidateIps.contains(host.directIp!)) {
+      candidateIps.add(host.directIp!);
+    }
+    if (candidateIps.isEmpty) {
+      candidateIps.add('127.0.0.1');
+    }
+
+    final payloadMap = <String, dynamic>{
+      'prompt': prompt,
+      'stream': true,
+      if (conversationId != null && conversationId.isNotEmpty)
+        'conversation_id': conversationId,
+      if (workspace != null && workspace.isNotEmpty) 'workspace': workspace,
+      if (model != null && model.isNotEmpty) 'model': model,
+    };
+
+    String? lastErr;
+    for (final ip in candidateIps) {
+      final uri = Uri.http('$ip:$defaultPort', '/api/turn');
+      try {
+        final req = await _httpClient
+            .openUrl('POST', uri)
+            .timeout(const Duration(seconds: 6));
+        req.headers.set('Content-Type', 'application/json; charset=utf-8');
+        if (secret != null && secret.isNotEmpty) {
+          req.headers.set('X-Peer-Token', secret);
+        }
+
+        final payloadBytes = utf8.encode(jsonEncode(payloadMap));
+        req.headers.contentLength = payloadBytes.length;
+        req.add(payloadBytes);
+
+        final resp = await req.close().timeout(const Duration(seconds: 15));
+        if (resp.statusCode < 200 || resp.statusCode >= 300) {
+          final bodyText = await utf8.decodeStream(resp);
+          lastErr = 'HTTP ${resp.statusCode}: $bodyText';
+          continue;
+        }
+
+        await for (final line
+            in resp.transform(utf8.decoder).transform(const LineSplitter())) {
+          final trimmed = line.trim();
+          if (trimmed.isEmpty) continue;
+          try {
+            final decoded = jsonDecode(trimmed);
+            if (decoded is Map<String, dynamic>) {
+              yield AiStreamEvent.fromJson(decoded);
+            }
+          } catch (_) {}
+        }
+        return;
+      } catch (e) {
+        lastErr = e.toString();
+      }
+    }
+
+    yield AiStreamEvent(
+      event: 'final',
+      ok: false,
+      status: 'error',
+      error: lastErr ?? 'Could not connect to ${host.name} on port $defaultPort',
+    );
+  }
+
+  /// Aborts an active Antigravity AI turn on the target peer.
+  Future<Map<String, dynamic>> abortAgentTurn(
+    HostTarget host, {
+    String? secret,
+  }) async {
+    final res = await _request(
+      host: host,
+      path: '/api/turn/abort',
+      method: 'POST',
+      secret: secret,
+      timeout: const Duration(seconds: 6),
+    );
+    return res ??
+        {
+          'ok': false,
+          'error': lastErrorDetail ?? 'Failed to abort turn on ${host.name}',
+        };
+  }
+
+  /// Starts a fresh AI conversation on the target peer (resets conversation_id).
+  Future<Map<String, dynamic>> startNewConversation(
+    HostTarget host, {
+    String? workspace,
+    String? model,
+    String? secret,
+  }) async {
+    final body = <String, dynamic>{
+      if (workspace != null && workspace.isNotEmpty) 'workspace': workspace,
+      if (model != null && model.isNotEmpty) 'model': model,
+    };
+    final res = await _request(
+      host: host,
+      path: '/api/turn/new',
+      method: 'POST',
+      body: body,
+      secret: secret,
+      timeout: const Duration(seconds: 5),
+    );
+    if (res != null && res['ok'] == true) {
+      return res;
+    }
+
+    // Fallback for peers on older commits: clear conversation_id in state.json
+    final pulled = await _request(
+      host: host,
+      path: '/api/sync/pull',
+      method: 'GET',
+      queryParams: {'file': 'state.json'},
+      secret: secret,
+    );
+    if (pulled != null && pulled['payload'] is Map) {
+      final statePayload = Map<String, dynamic>.from(pulled['payload'] as Map);
+      statePayload['conversation_id'] = null;
+      statePayload['in_flight'] = null;
+      if (workspace != null && workspace.isNotEmpty) {
+        statePayload['workspace'] = workspace;
+      }
+      if (model != null && model.isNotEmpty) {
+        statePayload['model'] = model;
+      }
+      await _request(
+        host: host,
+        path: '/api/sync/push',
+        method: 'POST',
+        body: {
+          'file': 'state.json',
+          'payload': statePayload,
+          'merge': false,
+          'is_main': true,
+        },
+        secret: secret,
+      );
+      return {'ok': true, 'conversation_id': null};
+    }
+
+    return {'ok': true, 'conversation_id': null};
+  }
+
+  /// Fetches structured turn history for the active or specified conversation ID.
+  Future<Map<String, dynamic>> fetchConversationHistory(
+    HostTarget host, {
+    String? conversationId,
+    int limit = 30,
+    String? secret,
+  }) async {
+    final query = <String, String>{
+      'limit': limit.toString(),
+      if (conversationId != null && conversationId.isNotEmpty)
+        'conv_id': conversationId,
+    };
+
+    final res = await _request(
+      host: host,
+      path: '/api/turn/history',
+      method: 'GET',
+      queryParams: query,
+      secret: secret,
+      timeout: const Duration(seconds: 7),
+    );
+
+    if (res != null && res['ok'] == true) {
+      final rawTurns = res['turns'];
+      final turns = <AiConversationTurn>[];
+      if (rawTurns is List) {
+        for (final item in rawTurns) {
+          if (item is Map<String, dynamic>) {
+            turns.add(AiConversationTurn.fromJson(item));
+          } else if (item is Map) {
+            turns.add(
+              AiConversationTurn.fromJson(Map<String, dynamic>.from(item)),
+            );
+          }
+        }
+      }
+      return {
+        'ok': true,
+        'conversationId': res['conversation_id']?.toString(),
+        'workspace': res['workspace']?.toString(),
+        'model': res['model']?.toString(),
+        'isRunning': res['is_running'] == true,
+        'inFlight': res['in_flight'],
+        'turns': turns,
+      };
+    }
+
+    return {
+      'ok': false,
+      'turns': <AiConversationTurn>[],
+      'error': lastErrorDetail,
+    };
+  }
+
+  /// Searches past conversations and recent prompt records on the peer.
+  Future<List<AiSessionSummary>> searchConversations(
+    HostTarget host, {
+    String query = '',
+    int limit = 15,
+    String? secret,
+  }) async {
+    final sessions = <AiSessionSummary>[];
+    final seenIds = <String>{};
+
+    if (query.trim().isNotEmpty) {
+      final res = await _request(
+        host: host,
+        path: '/api/peer/context/search',
+        method: 'GET',
+        queryParams: {
+          'q': query.trim(),
+          'limit': limit.toString(),
+        },
+        secret: secret,
+        timeout: const Duration(seconds: 6),
+      );
+      if (res != null && res['results'] is List) {
+        for (final item in res['results'] as List) {
+          if (item is Map) {
+            final s = AiSessionSummary.fromJson(
+              Map<String, dynamic>.from(item),
+            );
+            if (s.conversationId.isNotEmpty &&
+                seenIds.add(s.conversationId)) {
+              sessions.add(s);
+            }
+          }
+        }
+      }
+    }
+
+    if (sessions.isEmpty) {
+      final res = await _request(
+        host: host,
+        path: '/api/peer/prompts/export',
+        method: 'GET',
+        queryParams: {'limit': '80'},
+        secret: secret,
+        timeout: const Duration(seconds: 6),
+      );
+      if (res != null && res['prompts'] is List) {
+        for (final item in res['prompts'] as List) {
+          if (item is Map) {
+            final s = AiSessionSummary.fromJson(
+              Map<String, dynamic>.from(item),
+            );
+            if (s.conversationId.isNotEmpty &&
+                seenIds.add(s.conversationId)) {
+              if (query.trim().isEmpty ||
+                  s.previewPrompt
+                      .toLowerCase()
+                      .contains(query.trim().toLowerCase()) ||
+                  s.workspace
+                      .toLowerCase()
+                      .contains(query.trim().toLowerCase()) ||
+                  s.conversationId
+                      .toLowerCase()
+                      .contains(query.trim().toLowerCase())) {
+                sessions.add(s);
+                if (sessions.length >= limit) break;
+              }
+            }
+          }
+        }
+      }
+    }
+
+    return sessions;
+  }
+
+  /// Fetches available AI models and remaining quota from state.json or /api/health.
+  Future<List<Map<String, dynamic>>> fetchAvailableModels(
+    HostTarget host, {
+    String? secret,
+  }) async {
+    final pulled = await _request(
+      host: host,
+      path: '/api/sync/pull',
+      method: 'GET',
+      queryParams: {'file': 'state.json'},
+      secret: secret,
+      timeout: const Duration(seconds: 5),
+    );
+    if (pulled != null && pulled['payload'] is Map) {
+      final payload = pulled['payload'] as Map;
+      final credits = payload['cached_credits'];
+      if (credits is Map && credits['models_quota'] is List) {
+        final list = <Map<String, dynamic>>[];
+        for (final m in credits['models_quota'] as List) {
+          if (m is Map) {
+            list.add(Map<String, dynamic>.from(m));
+          }
+        }
+        if (list.isNotEmpty) return list;
+      }
+    }
+    return const [
+      {
+        'model_id': 'gemini-3.8-flash-medium',
+        'label': 'Gemini 3.8 Flash (Medium)',
+      },
+      {
+        'model_id': 'gemini-3.8-flash-high',
+        'label': 'Gemini 3.8 Flash (High)',
+      },
+      {
+        'model_id': 'claude-sonnet-5-5-high',
+        'label': 'Claude Sonnet 5.5 (High)',
+      },
+      {
+        'model_id': 'claude-opus-5-5-high',
+        'label': 'Claude Opus 5.5 (High)',
+      },
+    ];
+  }
+
   String _basename(String fullPath) {
     final normalized = fullPath.replaceAll('\\', '/');
     final trimmed = normalized.endsWith('/') && normalized.length > 1

@@ -6,6 +6,7 @@ import '../../services/storage_service.dart';
 import '../../services/terminal_session_controller.dart';
 import 'device_detail_screen.dart';
 import 'host_config_dialog.dart';
+import 'remote_file_explorer_screen.dart';
 import 'terminal_tab.dart';
 
 class DevicesTab extends StatefulWidget {
@@ -476,6 +477,27 @@ class _DevicesTabState extends State<DevicesTab> {
                       alignment: Alignment.centerLeft,
                     ),
                   ),
+                ),
+                Container(
+                  width: 1,
+                  height: 24,
+                  color: DeckColors.borderSubtle,
+                ),
+                IconButton(
+                  icon: const Icon(Icons.folder_open, size: 18),
+                  color: DeckColors.secondaryText,
+                  tooltip: 'Remote Files on ${host.name}',
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (ctx) => RemoteFileExplorerScreen(
+                          host: host,
+                          sshService: widget.sshService,
+                          storageService: widget.storage,
+                        ),
+                      ),
+                    );
+                  },
                 ),
                 Container(
                   width: 1,

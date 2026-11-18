@@ -1,16 +1,24 @@
+import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 import '../../theme/deck_theme.dart';
 import '../../models/host_target.dart';
 import '../../models/vitals_data.dart';
 import '../../services/ssh_service.dart';
 import '../../services/storage_service.dart';
 import '../../services/terminal_session_controller.dart';
+import '../../services/connector_service.dart';
 import '../widgets/vitals_card.dart';
 import '../widgets/lapdog_card.dart';
 import '../widgets/process_manager_card.dart';
 import '../widgets/quick_controls_card.dart';
+import 'ai_chat_screen.dart';
 import 'host_config_dialog.dart';
+import 'remote_file_explorer_screen.dart';
 import 'terminal_tab.dart';
 
 class DeviceDetailScreen extends StatefulWidget {
@@ -446,6 +454,61 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
     );
   }
 
+  void _openFileExplorer() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (ctx) => RemoteFileExplorerScreen(
+          host: _currentHost,
+          sshService: widget.sshService,
+          storageService: widget.storage,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _checkLockState() async {
+    final secret = await widget.storage.getHostCredential(_currentHost.id);
+    final isLocked = await widget.sshService.checkWorkstationLockState(
+      _currentHost,
+      secret: secret,
+    );
+    if (!mounted) return;
+    setState(() {
+      _vitals = _vitals.copyWith(isScreenLocked: isLocked);
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        backgroundColor: DeckColors.surfaceElevated,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        content: Text(
+          isLocked == true
+              ? '${_currentHost.name} session is LOCKED'
+              : (isLocked == false
+                  ? '${_currentHost.name} session is UNLOCKED'
+                  : 'Unable to determine session lock state on ${_currentHost.name}'),
+          style: TextStyle(
+            color: isLocked == true ? DeckColors.healthy : DeckColors.primaryAccent,
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _openScreengrab() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => _ScreengrabBottomSheet(
+        host: _currentHost,
+        sshService: widget.sshService,
+        storage: widget.storage,
+        isLocked: _vitals.isScreenLocked,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -455,13 +518,25 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
         elevation: 0,
         actions: [
           IconButton(
-            constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+            constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
+            icon: const Icon(Icons.folder_open, size: 20),
+            tooltip: 'Remote Files',
+            onPressed: _openFileExplorer,
+          ),
+          IconButton(
+            constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
+            icon: const Icon(Icons.screenshot_monitor, size: 20),
+            tooltip: 'Workstation Display',
+            onPressed: _openScreengrab,
+          ),
+          IconButton(
+            constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
             icon: const Icon(Icons.terminal, size: 20),
             tooltip: 'Open Terminal',
             onPressed: _openTerminal,
           ),
           IconButton(
-            constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+            constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
             icon: _isVitalsLoading
                 ? const SizedBox(
                     width: 18,
@@ -476,7 +551,7 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
             onPressed: _isVitalsLoading ? null : _fetchDeviceTelemetry,
           ),
           IconButton(
-            constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+            constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
             icon: const Icon(Icons.tune, size: 20),
             tooltip: 'Configure Node',
             onPressed: _openEditDialog,
@@ -792,22 +867,92 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
             ),
           ],
           const SizedBox(height: 10),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: _openTerminal,
-              icon: const Icon(Icons.terminal, size: 16),
-              label: Text('Open Terminal on ${_currentHost.name}'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: DeckColors.surfaceElevated,
-                foregroundColor: DeckColors.primaryAccent,
-                minimumSize: const Size.fromHeight(44),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  side: const BorderSide(color: DeckColors.borderSubtle),
+          // Action Buttons: Terminal, File Explorer, Display, AI Console
+          Row(
+            children: [
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: _openTerminal,
+                  icon: const Icon(Icons.terminal, size: 16),
+                  label: const Text('Terminal'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: DeckColors.surfaceElevated,
+                    foregroundColor: DeckColors.primaryAccent,
+                    minimumSize: const Size.fromHeight(42),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      side: const BorderSide(color: DeckColors.borderSubtle),
+                    ),
+                  ),
                 ),
               ),
-            ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: _openFileExplorer,
+                  icon: const Icon(Icons.folder_open, size: 16),
+                  label: const Text('Files'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: DeckColors.surfaceElevated,
+                    foregroundColor: DeckColors.informational,
+                    minimumSize: const Size.fromHeight(42),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      side: const BorderSide(color: DeckColors.borderSubtle),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: _openScreengrab,
+                  icon: const Icon(Icons.screenshot_monitor, size: 16),
+                  label: const Text('Display'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: DeckColors.surfaceElevated,
+                    foregroundColor: DeckColors.healthy,
+                    minimumSize: const Size.fromHeight(42),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      side: const BorderSide(color: DeckColors.borderSubtle),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => AiChatScreen(
+                          initialHost: _currentHost,
+                          availableHosts: widget.storage.loadHosts(),
+                          storage: widget.storage,
+                          connectorService: ConnectorService(),
+                        ),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.smart_toy_outlined, size: 16),
+                  label: const Text('AI Console'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: DeckColors.surfaceElevated,
+                    foregroundColor: DeckColors.primaryAccent,
+                    minimumSize: const Size.fromHeight(42),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      side: const BorderSide(color: DeckColors.borderSubtle),
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
           const Divider(color: DeckColors.borderSubtle, height: 24),
           // Independent Health States
@@ -833,6 +978,64 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
             'Lapdog Security Daemon',
             _currentHost.lapdogStatusLabel,
             valueColor: _serviceColor(_currentHost.lapdogDaemonStatus),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Workstation Session Lock',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: DeckColors.secondaryText,
+                    ),
+              ),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: (_vitals.isScreenLocked == true
+                              ? DeckColors.healthy
+                              : (_vitals.isScreenLocked == false
+                                  ? DeckColors.primaryAccent
+                                  : DeckColors.mutedText))
+                          .withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      _vitals.isScreenLocked == true
+                          ? 'Session Locked'
+                          : (_vitals.isScreenLocked == false
+                              ? 'Session Unlocked'
+                              : 'Unverified'),
+                      style: GoogleFonts.jetBrainsMono(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: _vitals.isScreenLocked == true
+                            ? DeckColors.healthy
+                            : (_vitals.isScreenLocked == false
+                                ? DeckColors.primaryAccent
+                                : DeckColors.mutedText),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  InkWell(
+                    onTap: _checkLockState,
+                    borderRadius: BorderRadius.circular(4),
+                    child: const Padding(
+                      padding: EdgeInsets.all(2.0),
+                      child: Icon(
+                        Icons.sync,
+                        size: 14,
+                        color: DeckColors.secondaryText,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ),
           const Divider(color: DeckColors.borderSubtle, height: 24),
           // Secondary Technical Identifiers
@@ -894,6 +1097,267 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
               ),
         ),
       ],
+    );
+  }
+}
+
+class _ScreengrabBottomSheet extends StatefulWidget {
+  final HostTarget host;
+  final SshService sshService;
+  final StorageService storage;
+  final bool? isLocked;
+
+  const _ScreengrabBottomSheet({
+    required this.host,
+    required this.sshService,
+    required this.storage,
+    this.isLocked,
+  });
+
+  @override
+  State<_ScreengrabBottomSheet> createState() => _ScreengrabBottomSheetState();
+}
+
+class _ScreengrabBottomSheetState extends State<_ScreengrabBottomSheet> {
+  bool _isLoading = true;
+  Uint8List? _imageBytes;
+  String? _error;
+  DateTime? _capturedAt;
+
+  @override
+  void initState() {
+    super.initState();
+    _capture();
+  }
+
+  Future<void> _capture() async {
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
+
+    try {
+      final secret = await widget.storage.getHostCredential(widget.host.id);
+      final bytes = await widget.sshService.captureScreengrab(
+        widget.host,
+        secret: secret,
+      );
+
+      if (!mounted) return;
+      if (bytes == null || bytes.isEmpty) {
+        setState(() {
+          _isLoading = false;
+          _error = widget.isLocked == true
+              ? 'Workstation session is locked. Graphical display capture is suppressed by the OS lock screen.'
+              : 'Unable to capture remote workstation display. Please verify that a graphical user session (X11/Wayland/Windows Desktop) is running.';
+        });
+      } else {
+        setState(() {
+          _imageBytes = bytes;
+          _capturedAt = DateTime.now();
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isLoading = false;
+        _error = 'Capture error: $e';
+      });
+    }
+  }
+
+  Future<void> _shareImage() async {
+    if (_imageBytes == null) return;
+    try {
+      final dir = await getTemporaryDirectory();
+      final file = File('${dir.path}/lapdeck_screengrab_${widget.host.name}.jpg');
+      await file.writeAsBytes(_imageBytes!);
+      await SharePlus.instance.share(
+        ShareParams(
+          files: [XFile(file.path)],
+          text:
+              'Workstation display from ${widget.host.name} (${DateFormat.Hms().format(_capturedAt ?? DateTime.now())})',
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to share: $e')),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(context).size.height * 0.85,
+      ),
+      decoration: const BoxDecoration(
+        color: DeckColors.surfaceSecondary,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        border: Border(
+          top: BorderSide(color: DeckColors.borderMedium, width: 1),
+          left: BorderSide(color: DeckColors.borderMedium, width: 1),
+          right: BorderSide(color: DeckColors.borderMedium, width: 1),
+        ),
+      ),
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Center(
+            child: Container(
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                color: DeckColors.borderMedium,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              const Icon(Icons.screenshot_monitor, size: 20, color: DeckColors.healthy),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Workstation Display · ${widget.host.name}',
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: DeckColors.primaryText,
+                      ),
+                ),
+              ),
+              if (_capturedAt != null)
+                Text(
+                  DateFormat.Hms().format(_capturedAt!),
+                  style: GoogleFonts.jetBrainsMono(
+                    fontSize: 11,
+                    color: DeckColors.mutedText,
+                  ),
+                ),
+              IconButton(
+                icon: const Icon(Icons.close, size: 18, color: DeckColors.mutedText),
+                onPressed: () => Navigator.of(context).pop(),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Expanded(
+            child: _isLoading
+                ? const Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: DeckColors.primaryAccent,
+                        ),
+                        SizedBox(height: 14),
+                        Text(
+                          'Capturing remote display...',
+                          style: TextStyle(color: DeckColors.secondaryText, fontSize: 13),
+                        ),
+                      ],
+                    ),
+                  )
+                : _error != null
+                    ? Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(20.0),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.screen_lock_portrait, size: 40, color: DeckColors.warning),
+                              const SizedBox(height: 12),
+                              Text(
+                                'Capture Unavailable',
+                                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                                      fontWeight: FontWeight.w700,
+                                      color: DeckColors.primaryText,
+                                    ),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                _error!,
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(fontSize: 12, color: DeckColors.secondaryText),
+                              ),
+                              const SizedBox(height: 16),
+                              ElevatedButton.icon(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: DeckColors.surfaceElevated,
+                                  foregroundColor: DeckColors.primaryAccent,
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                ),
+                                onPressed: _capture,
+                                icon: const Icon(Icons.refresh, size: 16),
+                                label: const Text('Retry Capture'),
+                              ),
+                            ],
+                          ),
+                        ),
+                      )
+                    : Container(
+                        decoration: BoxDecoration(
+                          color: DeckColors.background,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: DeckColors.borderSubtle),
+                        ),
+                        clipBehavior: Clip.antiAlias,
+                        child: Center(
+                          child: InteractiveViewer(
+                            panEnabled: true,
+                            scaleEnabled: true,
+                            minScale: 0.5,
+                            maxScale: 4.0,
+                            child: Image.memory(
+                              _imageBytes!,
+                              fit: BoxFit.contain,
+                            ),
+                          ),
+                        ),
+                      ),
+          ),
+          const SizedBox(height: 12),
+          if (!_isLoading && _imageBytes != null)
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: DeckColors.primaryText,
+                      side: const BorderSide(color: DeckColors.borderSubtle),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      minimumSize: const Size.fromHeight(44),
+                    ),
+                    onPressed: _capture,
+                    icon: const Icon(Icons.refresh, size: 16),
+                    label: const Text('Refresh'),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: DeckColors.primaryAccent,
+                      foregroundColor: DeckColors.background,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      minimumSize: const Size.fromHeight(44),
+                    ),
+                    onPressed: _shareImage,
+                    icon: const Icon(Icons.share, size: 16),
+                    label: const Text('Share / Save'),
+                  ),
+                ),
+              ],
+            ),
+        ],
+      ),
     );
   }
 }

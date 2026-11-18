@@ -8,6 +8,7 @@ class VitalsData {
   final String uptime;
   final DateTime timestamp;
   final bool isVerified;
+  final bool? isScreenLocked;
 
   const VitalsData({
     required this.cpuPercent,
@@ -19,6 +20,7 @@ class VitalsData {
     required this.uptime,
     required this.timestamp,
     this.isVerified = false,
+    this.isScreenLocked,
   });
 
   factory VitalsData.empty() {
@@ -32,6 +34,35 @@ class VitalsData {
       uptime: 'Unavailable',
       timestamp: DateTime.now(),
       isVerified: false,
+      isScreenLocked: null,
+    );
+  }
+
+  VitalsData copyWith({
+    double? cpuPercent,
+    String? loadAvg,
+    double? ramPercent,
+    String? ramUsage,
+    double? diskPercent,
+    String? diskUsage,
+    String? uptime,
+    DateTime? timestamp,
+    bool? isVerified,
+    bool? isScreenLocked,
+    bool clearScreenLocked = false,
+  }) {
+    return VitalsData(
+      cpuPercent: cpuPercent ?? this.cpuPercent,
+      loadAvg: loadAvg ?? this.loadAvg,
+      ramPercent: ramPercent ?? this.ramPercent,
+      ramUsage: ramUsage ?? this.ramUsage,
+      diskPercent: diskPercent ?? this.diskPercent,
+      diskUsage: diskUsage ?? this.diskUsage,
+      uptime: uptime ?? this.uptime,
+      timestamp: timestamp ?? this.timestamp,
+      isVerified: isVerified ?? this.isVerified,
+      isScreenLocked:
+          clearScreenLocked ? null : (isScreenLocked ?? this.isScreenLocked),
     );
   }
 }

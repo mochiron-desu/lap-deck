@@ -1,0 +1,88 @@
+name: Build & Publish Git Hotfix APK
+
+on:
+  push:
+    branches:
+      - main
+      - 'hotfix/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-hotfix-apk:
+    name: Build Release APK & Update hotfix-latest Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Install dependencies & verify analysis
+        run: |
+          flutter pub get
+          flutter analyze
+          flutter test
+
+      - name: Build Hotfix Release APK with Embedded Commit SHA
+        run: |
+          COMMIT_SHA=$(git rev-parse HEAD)
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          BRANCH_NAME=${GITHUB_REF_NAME}
+          flutter build apk --release \
+            --dart-define=GIT_COMMIT_SHA=${COMMIT_SHA} \
+            --dart-define=GIT_BRANCH=${BRANCH_NAME}
+          cp build/app/outputs/flutter-apk/app-release.apk lapdeck-hotfix.apk
+          cat <<EOF > version.json
+          {
+            "version": "1.2.0+37",
+            "commit_sha": "${COMMIT_SHA}",
+            "short_sha": "${SHORT_SHA}",
+            "branch": "${BRANCH_NAME}",
+            "built_at": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+          }
+          EOF
+
+      - name: Publish Rolling hotfix-latest Release for In-App OTA
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          COMMIT_SHA=$(git rev-parse HEAD)
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          COMMIT_MSG=$(git log -1 --pretty=%B | head -n 1)
+          TAG="hotfix-latest"
+
+          # Create or update the rolling hotfix-latest tag and release
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -f "${TAG}" "${COMMIT_SHA}"
+          git push origin "refs/tags/${TAG}" --force
+
+          NOTES="Automated LapDeck OTA Hotfix Build
+          Commit: ${COMMIT_SHA}
+          Short: ${SHORT_SHA}
+          Summary: ${COMMIT_MSG}"
+
+          if gh release view "${TAG}" >/dev/null 2>&1; then
+            gh release upload "${TAG}" lapdeck-hotfix.apk version.json --clobber
+            gh release edit "${TAG}" --title "LapDeck Hotfix (${SHORT_SHA})" --notes "${NOTES}"
+          else
+            gh release create "${TAG}" lapdeck-hotfix.apk version.json \
+              --title "LapDeck Hotfix (${SHORT_SHA})" \
+              --notes "${NOTES}" \
+              --prerelease
+          fi

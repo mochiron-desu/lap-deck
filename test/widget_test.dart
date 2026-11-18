@@ -1,9 +1,12 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lap_deck/models/host_target.dart';
 import 'package:lap_deck/models/command_action.dart';
+import 'package:lap_deck/models/notification_settings.dart';
+import 'package:lap_deck/models/remote_file_item.dart';
 import 'package:lap_deck/models/vitals_data.dart';
 import 'package:lap_deck/models/connector_models.dart';
 import 'package:lap_deck/services/app_logger.dart';
+import 'package:lap_deck/services/notification_service.dart';
 
 void main() {
   test('HostTarget default hosts do not hardcode online or stale latency', () {
@@ -251,5 +254,205 @@ void main() {
     expect(targetCfg.activeNode, 'linux');
     expect(targetCfg.availableWorkspaces.length, 1);
     expect(targetCfg.availableWorkspaces.first.isGit, isTrue);
+  });
+
+  test('VitalsData holds and propagates workstation screen lock state', () {
+    final empty = VitalsData.empty();
+    expect(empty.isScreenLocked, isNull);
+
+    final locked = empty.copyWith(isScreenLocked: true);
+    expect(locked.isScreenLocked, isTrue);
+
+    final unlocked = locked.copyWith(isScreenLocked: false);
+    expect(unlocked.isScreenLocked, isFalse);
+
+    final cleared = unlocked.copyWith(clearScreenLocked: true);
+    expect(cleared.isScreenLocked, isNull);
+  });
+
+  test('RemoteFileItem formats sizes and detects hidden files correctly', () {
+    const dir = RemoteFileItem(
+      name: 'Documents',
+      path: '/home/user/Documents',
+      isDirectory: true,
+      size: 4096,
+    );
+    expect(dir.formattedSize, '--');
+    expect(dir.isHidden, isFalse);
+
+    const smallFile = RemoteFileItem(
+      name: 'notes.txt',
+      path: '/home/user/notes.txt',
+      isDirectory: false,
+      size: 512,
+    );
+    expect(smallFile.formattedSize, '512 B');
+    expect(smallFile.isHidden, isFalse);
+
+    const kbFile = RemoteFileItem(
+      name: 'image.png',
+      path: '/home/user/image.png',
+      isDirectory: false,
+      size: 153600,
+    );
+    expect(kbFile.formattedSize, '150.0 KB');
+
+    const mbFile = RemoteFileItem(
+      name: 'archive.tar.gz',
+      path: '/home/user/archive.tar.gz',
+      isDirectory: false,
+      size: 10485760,
+    );
+    expect(mbFile.formattedSize, '10.0 MB');
+
+    const dotFile = RemoteFileItem(
+      name: '.bashrc',
+      path: '/home/user/.bashrc',
+      isDirectory: false,
+      size: 3500,
+    );
+    expect(dotFile.isHidden, isTrue);
+  });
+
+  test('AiStreamEvent and AiConversationTurn parse NDJSON streaming payloads', () {
+    final initEvent = AiStreamEvent.fromJson({
+      'event': 'init',
+      'conversation_id': '37c80d7e-6544-41b3-a072-e7a1cc7ea230',
+    });
+    expect(initEvent.event, 'init');
+    expect(initEvent.conversationId, '37c80d7e-6544-41b3-a072-e7a1cc7ea230');
+
+    final streamEvent = AiStreamEvent.fromJson({
+      'event': 'stream',
+      'accumulated_text': 'Inspecting workspace...',
+      'current_tool': 'bash: git status',
+    });
+    expect(streamEvent.event, 'stream');
+    expect(streamEvent.accumulatedText, 'Inspecting workspace...');
+    expect(streamEvent.currentTool, 'bash: git status');
+
+    final finalEvent = AiStreamEvent.fromJson({
+      'event': 'final',
+      'ok': true,
+      'status': 'success',
+      'conversation_id': '37c80d7e-6544-41b3-a072-e7a1cc7ea230',
+      'response_text': 'All checks passed.',
+      'total_tokens': 4120,
+      'duration_seconds': 8.4,
+    });
+    expect(finalEvent.ok, isTrue);
+    expect(finalEvent.responseText, 'All checks passed.');
+    expect(finalEvent.totalTokens, 4120);
+
+    final turn = AiConversationTurn.fromJson({
+      'step_index': 2,
+      'prompt': 'Run flutter test',
+      'response': 'All tests passed.',
+      'thinking': 'Checking unit tests in test/widget_test.dart',
+      'tools': ['run_command', 'read_file'],
+      'status': 'completed',
+    });
+    expect(turn.stepIndex, 2);
+    expect(turn.prompt, 'Run flutter test');
+    expect(turn.tools, ['run_command', 'read_file']);
+    expect(turn.status, AiTurnStatus.completed);
+  });
+
+  test('OtaUpdateInfo compares installed and remote Git commit SHAs accurately', () {
+    final upToDate = OtaUpdateInfo(
+      state: OtaUpdateState.upToDate,
+      installedCommitSha: 'a1b2c3d',
+      latestCommitSha: 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678',
+      checkedAt: DateTime.now(),
+    );
+    expect(upToDate.hasNewerCommit, isFalse);
+    expect(upToDate.shortInstalledSha, 'a1b2c3d');
+    expect(upToDate.shortLatestSha, 'a1b2c3d');
+
+    final updateReady = OtaUpdateInfo(
+      state: OtaUpdateState.updateAvailable,
+      installedCommitSha: 'a1b2c3d',
+      latestCommitSha: 'f9e8d7c6b5a432109876543210fedcba98765432',
+      latestCommitMessage: 'fix: normalize quick action heights',
+      apkDownloadUrl: 'https://github.com/mochiron-desu/lap-deck/releases/download/hotfix-latest/lapdeck-hotfix.apk',
+      apkSizeBytes: 24 * 1024 * 1024,
+      checkedAt: DateTime.now(),
+    );
+    expect(updateReady.hasNewerCommit, isTrue);
+    expect(updateReady.hasDirectApkAsset, isTrue);
+    expect(updateReady.shortLatestSha, 'f9e8d7c');
+    expect(updateReady.formattedApkSize, '24.0 MB');
+  });
+
+  test('NotificationService deduplicates host states and fires only on real transitions', () {
+    final service = NotificationService();
+    const cfg = NotificationSettings(
+      masterEnabled: true,
+      peerStatusTransitions: true,
+      subsystemAndConnectorErrors: true,
+      lapdogSecurityEvents: true,
+    );
+
+    final baseHost = HostTarget.defaultHosts[0];
+
+    // 1. Initial unknown/connecting probes never trigger notifications
+    expect(service.evaluateHostTransition(baseHost, cfg: cfg), isNull);
+    expect(
+      service.evaluateHostTransition(
+        baseHost.copyWith(peerStatus: PeerStatus.connecting),
+        cfg: cfg,
+      ),
+      isNull,
+    );
+
+    // 2. First verified online baseline is recorded silently without false transition alert
+    final onlineHost = baseHost.copyWith(
+      peerStatus: PeerStatus.online,
+      sshStatus: ServiceStatus.available,
+      pingMs: 8,
+    );
+    expect(service.evaluateHostTransition(onlineHost, cfg: cfg), isNull);
+
+    // 3. Repeated online polls do not spam
+    expect(service.evaluateHostTransition(onlineHost, cfg: cfg), isNull);
+
+    // 4. Transition from Online -> Unreachable triggers offline alert
+    final offlineHost = onlineHost.copyWith(
+      peerStatus: PeerStatus.unreachable,
+      sshStatus: ServiceStatus.unavailable,
+    );
+    final offlineAlert = service.evaluateHostTransition(offlineHost, cfg: cfg);
+    expect(offlineAlert, isNotNull);
+    expect(offlineAlert!.channelId, NotificationService.channelDevices);
+    expect(offlineAlert.title, contains('went Offline'));
+
+    // 5. Transition from Unreachable -> Online triggers online alert
+    final backOnlineAlert = service.evaluateHostTransition(onlineHost, cfg: cfg);
+    expect(backOnlineAlert, isNotNull);
+    expect(backOnlineAlert!.title, contains('is Online'));
+
+    // 6. Peer remains Online, but SSH drops to Unavailable -> triggers subsystem error alert
+    final sshDownHost = onlineHost.copyWith(
+      sshStatus: ServiceStatus.unavailable,
+    );
+    final sshAlert = service.evaluateHostTransition(sshDownHost, cfg: cfg);
+    expect(sshAlert, isNotNull);
+    expect(sshAlert!.channelId, NotificationService.channelErrors);
+    expect(sshAlert.title, contains('SSH Unavailable'));
+
+    // 7. Lapdog pending events increase -> triggers security alert
+    const lapdog1 = LapdogStatus(
+      isInstalled: true,
+      isAwayArmed: true,
+      pendingEvents: 2,
+    );
+    final securityAlert = service.evaluateHostTransition(
+      onlineHost,
+      lapdog: lapdog1,
+      cfg: cfg,
+    );
+    expect(securityAlert, isNotNull);
+    expect(securityAlert!.channelId, NotificationService.channelSecurity);
+    expect(securityAlert.title, contains('Lapdog Security Alert'));
   });
 }

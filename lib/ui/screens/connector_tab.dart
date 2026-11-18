@@ -7,14 +7,17 @@ import '../../theme/deck_theme.dart';
 import '../../models/host_target.dart';
 import '../../models/connector_models.dart';
 import '../../services/connector_service.dart';
+import '../../services/notification_service.dart';
 import '../../services/ssh_service.dart';
 import '../../services/storage_service.dart';
 import '../../services/app_logger.dart';
 import '../widgets/log_viewer_sheet.dart';
+import 'ai_chat_screen.dart';
 
 enum ConnectorSubSection {
   overview,
   peers,
+  aiConsole,
   activity,
   logsAndErrors,
   apiCapabilities,
@@ -26,6 +29,7 @@ class ConnectorTab extends StatefulWidget {
   final StorageService storage;
   final ConnectorService connectorService;
   final SshService? sshService;
+  final NotificationService? notificationService;
   final Function(HostTarget) onSelectHost;
 
   const ConnectorTab({
@@ -35,6 +39,7 @@ class ConnectorTab extends StatefulWidget {
     required this.storage,
     required this.connectorService,
     this.sshService,
+    this.notificationService,
     required this.onSelectHost,
   });
 
@@ -160,6 +165,7 @@ class _ConnectorTabState extends State<ConnectorTab> {
       switch (_activeSection) {
         case ConnectorSubSection.overview:
         case ConnectorSubSection.peers:
+        case ConnectorSubSection.aiConsole:
           break;
 
         case ConnectorSubSection.activity:
@@ -1095,6 +1101,17 @@ class _ConnectorTabState extends State<ConnectorTab> {
           ),
           const SizedBox(width: 8),
           _buildNavPill(
+            isSelected: _activeSection == ConnectorSubSection.aiConsole,
+            label: 'AI Console',
+            icon: Icons.smart_toy_outlined,
+            onTap: () {
+              if (_activeSection != ConnectorSubSection.aiConsole) {
+                setState(() => _activeSection = ConnectorSubSection.aiConsole);
+              }
+            },
+          ),
+          const SizedBox(width: 8),
+          _buildNavPill(
             isSelected: _activeSection == ConnectorSubSection.activity,
             label: 'Activity',
             icon: Icons.history,
@@ -1188,10 +1205,26 @@ class _ConnectorTabState extends State<ConnectorTab> {
   }
 
   Widget _buildActiveSectionBody() {
+    final defaultAiHost = _primaryOnlinePeer?.host ??
+        widget.activeHost ??
+        (widget.hosts.isNotEmpty
+            ? widget.hosts.first
+            : HostTarget.defaultHosts.first);
+
     return switch (_activeSection) {
       ConnectorSubSection.overview ||
       ConnectorSubSection.peers =>
         _buildLivePeerDashboard(),
+      ConnectorSubSection.aiConsole => AiChatScreen(
+          initialHost: defaultAiHost,
+          availableHosts: widget.hosts.isNotEmpty
+              ? widget.hosts
+              : HostTarget.defaultHosts,
+          storage: widget.storage,
+          connectorService: widget.connectorService,
+          notificationService: widget.notificationService,
+          isEmbedded: true,
+        ),
       ConnectorSubSection.activity => _buildActivitySection(),
       ConnectorSubSection.logsAndErrors => _buildLogsAndErrorsSection(),
       ConnectorSubSection.apiCapabilities => _buildApiCapabilitiesSection(),
@@ -1791,6 +1824,32 @@ class _ConnectorTabState extends State<ConnectorTab> {
                         onPressed: isBusy
                             ? null
                             : () => _confirmPromoteToMain(peerState),
+                      ),
+
+                    // Open AI Console on this peer
+                    if (isOnline)
+                      _buildPeerActionButton(
+                        label: 'AI Console',
+                        icon: Icons.smart_toy_outlined,
+                        foreground: DeckColors.primaryAccent,
+                        borderColor: DeckColors.primaryAccent,
+                        backgroundColor:
+                            DeckColors.primaryAccent.withValues(alpha: 0.12),
+                        onPressed: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => AiChatScreen(
+                                initialHost: peerState.host,
+                                availableHosts: widget.hosts.isNotEmpty
+                                    ? widget.hosts
+                                    : [peerState.host],
+                                storage: widget.storage,
+                                connectorService: widget.connectorService,
+                                notificationService: widget.notificationService,
+                              ),
+                            ),
+                          );
+                        },
                       ),
 
                     // Change Target

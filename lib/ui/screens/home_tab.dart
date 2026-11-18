@@ -2,10 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import '../../theme/deck_theme.dart';
 import '../../models/host_target.dart';
+import '../../models/notification_settings.dart';
 import '../../models/vitals_data.dart';
+import '../../services/connector_service.dart';
+import '../../services/notification_service.dart';
 import '../../services/ssh_service.dart';
 import '../../services/storage_service.dart';
 import '../../services/terminal_session_controller.dart';
+import 'ai_chat_screen.dart';
 import 'device_detail_screen.dart';
 import 'host_config_dialog.dart';
 import 'terminal_tab.dart';
@@ -21,6 +25,9 @@ class HomeTab extends StatefulWidget {
   final StorageService storage;
   final SshService sshService;
   final TerminalSessionController terminalController;
+  final ConnectorService? connectorService;
+  final NotificationService? notificationService;
+  final OtaUpdateInfo? otaUpdateInfo;
   final Function(HostTarget) onSelectHost;
   final VoidCallback onRefresh;
   final Function(int tabIndex) onNavigateTab;
@@ -39,6 +46,9 @@ class HomeTab extends StatefulWidget {
     required this.storage,
     required this.sshService,
     required this.terminalController,
+    this.connectorService,
+    this.notificationService,
+    this.otaUpdateInfo,
     required this.onSelectHost,
     required this.onRefresh,
     required this.onNavigateTab,
@@ -1259,6 +1269,9 @@ fi
   }
 
   Widget _buildAppHeader() {
+    final hasUpdate =
+        widget.otaUpdateInfo?.state == OtaUpdateState.updateAvailable;
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
       decoration: const BoxDecoration(
@@ -1277,22 +1290,77 @@ fi
                 ),
           ),
           const SizedBox(width: 8),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-            decoration: BoxDecoration(
-              color: DeckColors.surfaceElevated,
-              borderRadius: BorderRadius.circular(4),
-              border: Border.all(color: DeckColors.borderSubtle, width: 1),
-            ),
-            child: Text(
-              'v1.2',
-              style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    fontSize: 10,
-                    color: DeckColors.secondaryText,
+          InkWell(
+            borderRadius: BorderRadius.circular(4),
+            onTap: () => widget.onNavigateTab(3),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: hasUpdate
+                    ? DeckColors.primaryAccent.withValues(alpha: 0.16)
+                    : DeckColors.surfaceElevated,
+                borderRadius: BorderRadius.circular(4),
+                border: Border.all(
+                  color: hasUpdate
+                      ? DeckColors.primaryAccent
+                      : DeckColors.borderSubtle,
+                  width: 1,
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    AppVersionInfo.shortVersionBadge,
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          fontSize: 10,
+                          color: hasUpdate
+                              ? DeckColors.primaryAccent
+                              : DeckColors.secondaryText,
+                          fontWeight:
+                              hasUpdate ? FontWeight.w700 : FontWeight.w500,
+                        ),
                   ),
+                  if (hasUpdate) ...[
+                    const SizedBox(width: 4),
+                    Container(
+                      width: 6,
+                      height: 6,
+                      decoration: const BoxDecoration(
+                        color: DeckColors.primaryAccent,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
             ),
           ),
           const Spacer(),
+          if (widget.activeHost != null)
+            IconButton(
+              constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+              icon: const Icon(
+                Icons.smart_toy_outlined,
+                size: 20,
+                color: DeckColors.primaryAccent,
+              ),
+              tooltip: 'Open AI Console (${widget.activeHost!.name})',
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => AiChatScreen(
+                      initialHost: widget.activeHost!,
+                      availableHosts: widget.hosts,
+                      storage: widget.storage,
+                      connectorService:
+                          widget.connectorService ?? ConnectorService(),
+                      notificationService: widget.notificationService,
+                    ),
+                  ),
+                );
+              },
+            ),
           IconButton(
             constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
             icon: widget.isVitalsLoading
@@ -1935,6 +2003,11 @@ fi
     final isLockBusy =
         active != null && _inFlightKeys.contains('lock-${active.id}');
 
+    final isLocked = widget.vitals.isScreenLocked;
+    final lockStateHint = isLocked == true
+        ? 'Session Locked'
+        : (isLocked == false ? 'Session Unlocked' : 'SSH ${active?.sshStatusLabel ?? "Unknown"}');
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1965,74 +2038,80 @@ fi
           const SizedBox(height: 12),
         ],
 
-        // 2x2 Grid of Context-Aware Actions
-        Row(
-          children: [
-            Expanded(
-              child: _buildContextActionCard(
-                icon: Icons.terminal,
-                title: 'Terminal',
-                targetSubtitle: hasReusablePty
-                    ? 'Resume on $targetName'
-                    : 'Open on $targetName',
-                stateHint: hasReusablePty
-                    ? 'Active PTY session'
-                    : 'SSH ${active?.sshStatusLabel ?? "Unknown"}',
-                accentColor:
-                    hasReusablePty ? DeckColors.healthy : DeckColors.primaryAccent,
-                isBusy: false,
-                onTap: active == null ? null : _handleTerminalQuickAction,
+        // 2x2 Grid of Context-Aware Actions (normalized equal dimensions)
+        IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                child: _buildContextActionCard(
+                  icon: Icons.terminal,
+                  title: 'Terminal',
+                  targetSubtitle: hasReusablePty
+                      ? 'Resume on $targetName'
+                      : 'Open on $targetName',
+                  stateHint: hasReusablePty
+                      ? 'Active PTY session'
+                      : 'SSH ${active?.sshStatusLabel ?? "Unknown"}',
+                  accentColor:
+                      hasReusablePty ? DeckColors.healthy : DeckColors.primaryAccent,
+                  isBusy: false,
+                  onTap: active == null ? null : _handleTerminalQuickAction,
+                ),
               ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: _buildContextActionCard(
-                icon: Icons.fact_check_outlined,
-                title: 'Diagnostics',
-                targetSubtitle: 'Inspect $targetName',
-                stateHint: active?.reachabilityLabel ?? 'Unknown',
-                accentColor: DeckColors.informational,
-                isBusy: false,
-                onTap: active == null ? null : _handleDiagnosticsQuickAction,
+              const SizedBox(width: 10),
+              Expanded(
+                child: _buildContextActionCard(
+                  icon: Icons.fact_check_outlined,
+                  title: 'Diagnostics',
+                  targetSubtitle: 'Inspect $targetName',
+                  stateHint: active?.reachabilityLabel ?? 'Unknown',
+                  accentColor: DeckColors.informational,
+                  isBusy: false,
+                  onTap: active == null ? null : _handleDiagnosticsQuickAction,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
         const SizedBox(height: 10),
-        Row(
-          children: [
-            Expanded(
-              child: _buildContextActionCard(
-                icon: isArmed ? Icons.shield : Icons.verified_user_outlined,
-                title: isArmed ? 'Disarm Away' : 'Arm Away',
-                targetSubtitle:
-                    isArmed ? 'Disarm $targetName' : 'Protect $targetName',
-                stateHint: active?.lapdogDaemonStatus == ServiceStatus.available
-                    ? (isArmed ? 'Away Armed' : 'Home Mode')
-                    : 'Daemon ${active?.lapdogStatusLabel ?? "Unknown"}',
-                accentColor:
-                    isArmed ? DeckColors.warning : DeckColors.healthy,
-                isBusy: isAwayBusy,
-                onTap: (active == null || isAwayBusy)
-                    ? null
-                    : _handleArmAwayQuickAction,
+        IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(
+                child: _buildContextActionCard(
+                  icon: isArmed ? Icons.shield : Icons.verified_user_outlined,
+                  title: isArmed ? 'Disarm Away' : 'Arm Away',
+                  targetSubtitle:
+                      isArmed ? 'Disarm $targetName' : 'Protect $targetName',
+                  stateHint: active?.lapdogDaemonStatus == ServiceStatus.available
+                      ? (isArmed ? 'Away Armed' : 'Home Mode')
+                      : 'Daemon ${active?.lapdogStatusLabel ?? "Unknown"}',
+                  accentColor:
+                      isArmed ? DeckColors.warning : DeckColors.healthy,
+                  isBusy: isAwayBusy,
+                  onTap: (active == null || isAwayBusy)
+                      ? null
+                      : _handleArmAwayQuickAction,
+                ),
               ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: _buildContextActionCard(
-                icon: Icons.lock_outline,
-                title: active?.lockActionTitle ?? 'Lock Session',
-                targetSubtitle: 'Lock $targetName',
-                stateHint: 'SSH ${active?.sshStatusLabel ?? "Unknown"}',
-                accentColor: DeckColors.primaryAccent,
-                isBusy: isLockBusy,
-                onTap: (active == null || isLockBusy)
-                    ? null
-                    : _handleLockDeviceQuickAction,
+              const SizedBox(width: 10),
+              Expanded(
+                child: _buildContextActionCard(
+                  icon: Icons.lock_outline,
+                  title: active?.lockActionTitle ?? 'Lock Session',
+                  targetSubtitle: 'Lock $targetName',
+                  stateHint: lockStateHint,
+                  accentColor: isLocked == true ? DeckColors.healthy : DeckColors.primaryAccent,
+                  isBusy: isLockBusy,
+                  onTap: (active == null || isLockBusy)
+                      ? null
+                      : _handleLockDeviceQuickAction,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ],
     );
@@ -2054,7 +2133,7 @@ fi
         onTap: onTap,
         borderRadius: BorderRadius.circular(12),
         child: Container(
-          constraints: const BoxConstraints(minHeight: 78),
+          constraints: const BoxConstraints(minHeight: 82),
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(12),
@@ -2062,6 +2141,7 @@ fi
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Row(
                 children: [
@@ -2080,6 +2160,8 @@ fi
                   Expanded(
                     child: Text(
                       title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.titleSmall?.copyWith(
                             fontSize: 13,
                             fontWeight: FontWeight.w700,
@@ -2090,21 +2172,31 @@ fi
                 ],
               ),
               const SizedBox(height: 6),
-              Text(
-                targetSubtitle,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: DeckColors.secondaryText,
-                    ),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                stateHint,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      fontSize: 10,
-                      color: DeckColors.mutedText,
-                    ),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    targetSubtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: DeckColors.secondaryText,
+                        ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    stateHint,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          fontSize: 10,
+                          color: DeckColors.mutedText,
+                        ),
+                  ),
+                ],
               ),
             ],
           ),

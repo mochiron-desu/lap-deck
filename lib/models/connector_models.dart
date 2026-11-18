@@ -465,3 +465,213 @@ class MediaActivityItem {
     );
   }
 }
+
+/// Lifecycle state of an individual AI conversation turn in the in-app AI Console.
+enum AiTurnStatus {
+  streaming,
+  completed,
+  error,
+  aborted;
+
+  String get label => switch (this) {
+        AiTurnStatus.streaming => 'IN PROGRESS',
+        AiTurnStatus.completed => 'COMPLETED',
+        AiTurnStatus.error => 'FAILED',
+        AiTurnStatus.aborted => 'ABORTED',
+      };
+}
+
+/// Immutable representation of a user prompt + Antigravity AI response turn.
+class AiConversationTurn {
+  final int stepIndex;
+  final String prompt;
+  final String response;
+  final String thinking;
+  final List<String> tools;
+  final String? currentTool;
+  final AiTurnStatus status;
+  final String createdAt;
+  final int totalTokens;
+  final double durationSeconds;
+  final String? errorMessage;
+
+  const AiConversationTurn({
+    required this.stepIndex,
+    required this.prompt,
+    this.response = '',
+    this.thinking = '',
+    this.tools = const [],
+    this.currentTool,
+    this.status = AiTurnStatus.completed,
+    this.createdAt = '',
+    this.totalTokens = 0,
+    this.durationSeconds = 0.0,
+    this.errorMessage,
+  });
+
+  AiConversationTurn copyWith({
+    int? stepIndex,
+    String? prompt,
+    String? response,
+    String? thinking,
+    List<String>? tools,
+    String? currentTool,
+    bool clearCurrentTool = false,
+    AiTurnStatus? status,
+    String? createdAt,
+    int? totalTokens,
+    double? durationSeconds,
+    String? errorMessage,
+    bool clearError = false,
+  }) {
+    return AiConversationTurn(
+      stepIndex: stepIndex ?? this.stepIndex,
+      prompt: prompt ?? this.prompt,
+      response: response ?? this.response,
+      thinking: thinking ?? this.thinking,
+      tools: tools ?? this.tools,
+      currentTool: clearCurrentTool ? null : (currentTool ?? this.currentTool),
+      status: status ?? this.status,
+      createdAt: createdAt ?? this.createdAt,
+      totalTokens: totalTokens ?? this.totalTokens,
+      durationSeconds: durationSeconds ?? this.durationSeconds,
+      errorMessage: clearError ? null : (errorMessage ?? this.errorMessage),
+    );
+  }
+
+  factory AiConversationTurn.fromJson(Map<String, dynamic> json) {
+    final rawTools = json['tools'];
+    final toolsList = <String>[];
+    if (rawTools is List) {
+      for (final t in rawTools) {
+        final s = t?.toString() ?? '';
+        if (s.isNotEmpty) toolsList.add(s);
+      }
+    }
+    final statusStr = (json['status']?.toString() ?? 'completed').toLowerCase();
+    final turnStatus = switch (statusStr) {
+      'streaming' || 'in_progress' => AiTurnStatus.streaming,
+      'error' || 'failed' => AiTurnStatus.error,
+      'aborted' => AiTurnStatus.aborted,
+      _ => AiTurnStatus.completed,
+    };
+
+    return AiConversationTurn(
+      stepIndex: (json['step_index'] as num?)?.toInt() ?? 0,
+      prompt: json['prompt']?.toString() ?? '',
+      response: json['response']?.toString() ?? '',
+      thinking: json['thinking']?.toString() ?? '',
+      tools: toolsList,
+      status: turnStatus,
+      createdAt: json['created_at']?.toString() ?? '',
+      totalTokens: (json['total_tokens'] as num?)?.toInt() ?? 0,
+      durationSeconds: (json['duration_seconds'] as num?)?.toDouble() ?? 0.0,
+      errorMessage: json['error']?.toString(),
+    );
+  }
+}
+
+/// Real-time NDJSON stream event emitted by POST /api/turn (stream: true).
+class AiStreamEvent {
+  final String event; // 'init', 'thinking', 'stream', 'heartbeat', 'final'
+  final String? conversationId;
+  final String? accumulatedText;
+  final String? currentTool;
+  final String? thinking;
+  final bool? ok;
+  final String? status;
+  final String? responseText;
+  final int? totalTokens;
+  final double? durationSeconds;
+  final String? error;
+  final bool isTimeout;
+  final bool isCrash;
+
+  const AiStreamEvent({
+    required this.event,
+    this.conversationId,
+    this.accumulatedText,
+    this.currentTool,
+    this.thinking,
+    this.ok,
+    this.status,
+    this.responseText,
+    this.totalTokens,
+    this.durationSeconds,
+    this.error,
+    this.isTimeout = false,
+    this.isCrash = false,
+  });
+
+  factory AiStreamEvent.fromJson(Map<String, dynamic> json) {
+    return AiStreamEvent(
+      event: json['event']?.toString() ?? 'stream',
+      conversationId: json['conversation_id']?.toString(),
+      accumulatedText: json['accumulated_text']?.toString(),
+      currentTool: json['current_tool']?.toString(),
+      thinking: json['thinking']?.toString(),
+      ok: json['ok'] as bool?,
+      status: json['status']?.toString(),
+      responseText: json['response_text']?.toString(),
+      totalTokens: (json['total_tokens'] as num?)?.toInt(),
+      durationSeconds: (json['duration_seconds'] as num?)?.toDouble(),
+      error: json['error']?.toString(),
+      isTimeout: json['is_timeout'] == true,
+      isCrash: json['is_crash'] == true,
+    );
+  }
+}
+
+/// Summary of an indexed past conversation from prompts.db / context search.
+class AiSessionSummary {
+  final String conversationId;
+  final String workspace;
+  final String previewPrompt;
+  final String timestamp;
+  final int promptCount;
+
+  const AiSessionSummary({
+    required this.conversationId,
+    required this.workspace,
+    required this.previewPrompt,
+    required this.timestamp,
+    this.promptCount = 1,
+  });
+
+  factory AiSessionSummary.fromJson(Map<String, dynamic> json) {
+    final cid = json['conversation_id']?.toString() ??
+        json['conv_id']?.toString() ??
+        '';
+    final ws = json['workspace']?.toString() ??
+        json['folder']?.toString() ??
+        '';
+    String promptText = json['prompt']?.toString() ??
+        json['last_prompt']?.toString() ??
+        json['preview']?.toString() ??
+        '';
+    if (promptText.isEmpty && json['prompts'] is List) {
+      final list = json['prompts'] as List;
+      if (list.isNotEmpty) {
+        final lastItem = list.last;
+        if (lastItem is Map) {
+          promptText = lastItem['prompt']?.toString() ?? '';
+        } else {
+          promptText = lastItem.toString();
+        }
+      }
+    }
+    return AiSessionSummary(
+      conversationId: cid,
+      workspace: ws,
+      previewPrompt: promptText,
+      timestamp: json['timestamp']?.toString() ??
+          json['created_at']?.toString() ??
+          json['last_active']?.toString() ??
+          '',
+      promptCount: (json['prompt_count'] as num?)?.toInt() ??
+          (json['count'] as num?)?.toInt() ??
+          1,
+    );
+  }
+}
+
