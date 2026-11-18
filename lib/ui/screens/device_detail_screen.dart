@@ -186,8 +186,9 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
 
     final secret = await widget.storage.getHostCredential(target.id);
     final modeArg = enableAway ? 'away' : 'back';
-    final cmd =
-        'lapdog $modeArg 2>/dev/null || ~/.local/bin/lapdog $modeArg 2>/dev/null';
+    final cmd = target.os == HostOs.windows
+        ? 'if (Get-Command lapdog -ErrorAction SilentlyContinue) { lapdog $modeArg } else { Write-Error "Lapdog is not installed on Windows."; exit 127 }'
+        : 'lapdog $modeArg 2>/dev/null || ~/.local/bin/lapdog $modeArg 2>/dev/null';
 
     final res = await widget.sshService.executeCommand(
       host: target,
@@ -264,7 +265,7 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
     final secret = await widget.storage.getHostCredential(target.id);
     final res = await widget.sshService.executeCommand(
       host: target,
-      command: 'kill -9 ${proc.pid}',
+      command: target.killProcessCommand(proc.pid),
       privateKeyPem:
           target.authMethod == AuthMethod.privateKey ? secret : null,
       password: target.authMethod == AuthMethod.password ? secret : null,

@@ -107,10 +107,32 @@ class HostTarget {
 
   /// Accurate OS-specific session lock command that targets the physical
   /// graphical session (not the SSH tty) and verifies the locked state.
+  ///
+  /// On Windows (where OpenSSH DefaultShell is PowerShell and SSH sessions
+  /// run in non-interactive Session 0), `LockWorkStation` must be dispatched
+  /// into the interactive console user session (Session 1+) via an interactive
+  /// (`/IT`) scheduled task or `tsdiscon.exe`, followed by verifying that
+  /// `LogonUI` or `LockApp` is active.
   String get lockSessionCommand {
     return switch (os) {
-      HostOs.windows =>
-        'tsdiscon 2>nul & rundll32.exe user32.dll,LockWorkStation & timeout /t 1 /nobreak >nul & tasklist /FI "IMAGENAME eq LogonUI.exe" | find /I "LogonUI.exe" >nul',
+      HostOs.windows => r'''
+$ErrorActionPreference = 'SilentlyContinue'
+if (Get-Command tsdiscon.exe -ErrorAction SilentlyContinue) {
+  & tsdiscon.exe 2>$null
+}
+& schtasks.exe /Create /TN "LapDeckLock" /TR "rundll32.exe user32.dll,LockWorkStation" /SC ONCE /ST 00:00 /IT /F 2>$null | Out-Null
+& schtasks.exe /Run /TN "LapDeckLock" 2>$null | Out-Null
+& rundll32.exe user32.dll,LockWorkStation 2>$null
+Start-Sleep -Milliseconds 900
+& schtasks.exe /Delete /TN "LapDeckLock" /F 2>$null | Out-Null
+$locked = Get-Process -Name LogonUI,LockApp -ErrorAction SilentlyContinue
+if ($locked) {
+  Write-Output "LOCK_CONFIRMED:WINDOWS_LOGONUI"
+  exit 0
+}
+Write-Error "Failed to verify Windows session lock (LogonUI/LockApp not detected)."
+exit 1
+''',
       HostOs.linux => '''
 export DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/\$(id -u)/bus"
 gdbus call --session --dest org.gnome.ScreenSaver --object-path /org/gnome/ScreenSaver --method org.gnome.ScreenSaver.Lock >/dev/null 2>&1 || true
@@ -139,6 +161,23 @@ echo "Failed to verify graphical session lock (LockedHint remained no)." >&2
 exit 1
 ''',
       HostOs.macos => 'pmset displaysleepnow',
+    };
+  }
+
+  /// OS-specific process termination command (PowerShell on Windows, POSIX on Linux/macOS).
+  String killProcessCommand(int pid) {
+    return switch (os) {
+      HostOs.windows => 'Stop-Process -Id $pid -Force -ErrorAction Stop',
+      HostOs.linux || HostOs.macos => 'kill -9 $pid',
+    };
+  }
+
+  /// OS-specific system suspend / sleep command.
+  String get sleepDeviceCommand {
+    return switch (os) {
+      HostOs.windows => 'rundll32.exe powrprof.dll,SetSuspendState 0,1,0',
+      HostOs.linux => 'systemctl suspend',
+      HostOs.macos => 'pmset sleepnow',
     };
   }
 

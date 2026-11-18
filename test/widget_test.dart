@@ -21,6 +21,10 @@ void main() {
     expect(hosts[1].osDisplayName, 'Windows 11 / WSL2');
     expect(hosts[1].lockActionTitle, 'Lock Windows Session');
     expect(hosts[1].lockSessionCommand, contains('LockWorkStation'));
+    expect(hosts[1].lockSessionCommand, contains('schtasks.exe'));
+    expect(hosts[1].lockSessionCommand, isNot(contains('2>nul &')));
+    expect(hosts[1].killProcessCommand(4321), contains('Stop-Process -Id 4321'));
+    expect(hosts[0].killProcessCommand(4321), 'kill -9 4321');
   });
 
   test('Independent peer and SSH states are not conflated', () {

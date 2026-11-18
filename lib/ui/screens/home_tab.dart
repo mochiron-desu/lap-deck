@@ -743,7 +743,17 @@ class _HomeTabState extends State<HomeTab> {
       // 2. Execute command & query confirmed backend state on target
       final secret = await widget.storage.getHostCredential(target.id);
       final modeArg = enableAway ? 'away' : 'back';
-      final cmd = '''
+      final cmd = target.os == HostOs.windows
+          ? '''
+if (Get-Command lapdog -ErrorAction SilentlyContinue) {
+  lapdog $modeArg
+  if (\$LASTEXITCODE -eq 0) { lapdog status }
+} else {
+  Write-Output "LAPDOG_BINARY_MISSING"
+  exit 127
+}
+'''
+          : '''
 if command -v lapdog >/dev/null 2>&1; then
   lapdog $modeArg && lapdog status
 elif [ -x "\$HOME/.local/bin/lapdog" ]; then

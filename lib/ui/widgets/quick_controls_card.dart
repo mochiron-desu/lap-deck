@@ -109,7 +109,9 @@ class QuickControlsCard extends StatelessWidget {
                   onTap: () => onTrigger(
                     'restart-lapdog',
                     'Restart Lapdog',
-                    'systemctl --user restart lapdog 2>/dev/null || lapdog restart 2>/dev/null',
+                    host?.os == HostOs.windows
+                        ? 'if (Get-Command lapdog -ErrorAction SilentlyContinue) { lapdog restart } else { Write-Error "Lapdog is not installed on Windows."; exit 127 }'
+                        : 'systemctl --user restart lapdog 2>/dev/null || lapdog restart 2>/dev/null',
                   ),
                 ),
               ),
@@ -128,7 +130,9 @@ class QuickControlsCard extends StatelessWidget {
                   onTap: () => onTrigger(
                     'sync-skills',
                     'Sync Skills',
-                    'python3 -m antigravity_sync 2>/dev/null || true',
+                    host?.os == HostOs.windows
+                        ? 'python -m antigravity_sync 2>\$null; exit 0'
+                        : 'python3 -m antigravity_sync 2>/dev/null || true',
                   ),
                 ),
               ),
@@ -150,7 +154,8 @@ class QuickControlsCard extends StatelessWidget {
                     onConfirm: () => onTrigger(
                       'sleep-rig',
                       'Sleep Device',
-                      'systemctl suspend 2>/dev/null || rundll32.exe powrprof.dll,SetSuspendState 0,1,0',
+                      host?.sleepDeviceCommand ??
+                          'systemctl suspend 2>/dev/null || rundll32.exe powrprof.dll,SetSuspendState 0,1,0',
                     ),
                   ),
                 ),
