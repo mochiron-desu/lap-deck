@@ -140,7 +140,7 @@ class DeckTheme {
           return const IconThemeData(color: DeckColors.mutedText, size: 22);
         }),
       ),
-      cardTheme: CardTheme(
+      cardTheme: CardThemeData(
         color: DeckColors.surfaceSecondary,
         elevation: 0,
         shape: RoundedRectangleBorder(
