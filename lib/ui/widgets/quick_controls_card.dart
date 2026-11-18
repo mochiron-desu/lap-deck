@@ -1,14 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../theme/deck_theme.dart';
+import '../../models/host_target.dart';
 
 class QuickControlsCard extends StatelessWidget {
+  final HostTarget? host;
   final bool isExecuting;
   final String? executingLabel;
   final Function(String actionId, String label, String command) onTrigger;
 
   const QuickControlsCard({
     super.key,
+    this.host,
     required this.isExecuting,
     required this.executingLabel,
     required this.onTrigger,
@@ -16,44 +19,54 @@ class QuickControlsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final targetName = host?.name ?? 'workstation';
+    final lockTitle = host?.lockActionTitle ?? 'Lock Session';
+    final lockCmd =
+        host?.lockSessionCommand ?? HostTarget.defaultHosts.first.lockSessionCommand;
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: DeckColors.surfaceRack,
+        color: DeckColors.surfaceSecondary,
         border: Border.all(color: DeckColors.borderSubtle, width: 1),
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: BorderRadius.circular(14),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              const Icon(Icons.touch_app, size: 16, color: DeckColors.accentOrange),
+              const Icon(
+                Icons.touch_app,
+                size: 18,
+                color: DeckColors.primaryAccent,
+              ),
               const SizedBox(width: 8),
-              Text(
-                'ONE-TOUCH CONTROLS',
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  letterSpacing: 1.0,
-                  fontWeight: FontWeight.w700,
+              Expanded(
+                child: Text(
+                  'Device controls · $targetName',
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: DeckColors.primaryText,
+                      ),
                 ),
               ),
-              const Spacer(),
               if (isExecuting) ...[
                 const SizedBox(
                   width: 12,
                   height: 12,
                   child: CircularProgressIndicator(
                     strokeWidth: 2,
-                    color: DeckColors.accentOrange,
+                    color: DeckColors.primaryAccent,
                   ),
                 ),
                 const SizedBox(width: 6),
                 Text(
-                  executingLabel ?? 'EXECUTING...',
+                  executingLabel ?? 'In progress...',
                   style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    fontSize: 9,
-                    color: DeckColors.accentOrange,
-                  ),
+                        fontSize: 10,
+                        color: DeckColors.primaryAccent,
+                      ),
                 ),
               ],
             ],
@@ -67,65 +80,76 @@ class QuickControlsCard extends StatelessWidget {
                 child: _buildControlButton(
                   context,
                   icon: Icons.lock_outline,
-                  label: 'LOCK DISPLAY',
-                  subtitle: 'Lock graphical session',
-                  color: DeckColors.accentOrange,
-                  onTap: () => onTrigger(
-                    'lock-screen',
-                    'Locking display...',
-                    'loginctl lock-session 2>/dev/null || gnome-screensaver-command -l 2>/dev/null || rundll32.exe user32.dll,LockWorkStation 2>/dev/null',
+                  label: lockTitle,
+                  subtitle: 'Lock $targetName',
+                  color: DeckColors.primaryAccent,
+                  onTap: () => _confirmAction(
+                    context,
+                    title: '$lockTitle on $targetName?',
+                    message: host?.lockConsequenceDescription ??
+                        'Locks the active graphical user session on $targetName.',
+                    confirmLabel: 'Lock $targetName',
+                    confirmColor: DeckColors.primaryAccent,
+                    onConfirm: () => onTrigger(
+                      'lock-screen',
+                      lockTitle,
+                      lockCmd,
+                    ),
                   ),
                 ),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 10),
               Expanded(
                 child: _buildControlButton(
                   context,
                   icon: Icons.restart_alt,
-                  label: 'RESTART LAPDOG',
-                  subtitle: 'Reset security daemon',
-                  color: DeckColors.cautionAmber,
+                  label: 'Restart Lapdog',
+                  subtitle: 'Reset daemon on $targetName',
+                  color: DeckColors.warning,
                   onTap: () => onTrigger(
                     'restart-lapdog',
-                    'Restarting LapDog...',
-                    'systemctl --user restart lapdog 2>/dev/null || echo "restarted"',
+                    'Restart Lapdog',
+                    'systemctl --user restart lapdog 2>/dev/null || lapdog restart 2>/dev/null',
                   ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 10),
           Row(
             children: [
               Expanded(
                 child: _buildControlButton(
                   context,
                   icon: Icons.sync,
-                  label: 'SYNC SKILLS',
-                  subtitle: 'Mesh prompt & skills sync',
-                  color: DeckColors.meshCyan,
+                  label: 'Sync Skills',
+                  subtitle: 'Sync mesh on $targetName',
+                  color: DeckColors.informational,
                   onTap: () => onTrigger(
                     'sync-skills',
-                    'Synchronizing peer mesh...',
-                    'python3 -m antigravity_sync 2>/dev/null || echo "Mesh in sync"',
+                    'Sync Skills',
+                    'python3 -m antigravity_sync 2>/dev/null || true',
                   ),
                 ),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 10),
               Expanded(
                 child: _buildControlButton(
                   context,
                   icon: Icons.power_settings_new,
-                  label: 'SLEEP RIG',
-                  subtitle: 'Suspend workstation',
-                  color: DeckColors.alertCrimson,
+                  label: 'Sleep Device',
+                  subtitle: 'Suspend $targetName',
+                  color: DeckColors.error,
                   onTap: () => _confirmAction(
                     context,
-                    title: 'Suspend Workstation?',
-                    message: 'This will put the laptop into sleep mode. Wake-on-LAN or physical press required to revive.',
+                    title: 'Suspend $targetName?',
+                    message:
+                        'Puts $targetName (${host?.tailscaleIp ?? ""}) into system sleep mode. Physical wake or Wake-on-LAN will be required to reconnect.',
+                    confirmLabel: 'Suspend $targetName',
+                    confirmColor: DeckColors.error,
                     onConfirm: () => onTrigger(
                       'sleep-rig',
-                      'Suspending...',
+                      'Sleep Device',
                       'systemctl suspend 2>/dev/null || rundll32.exe powrprof.dll,SetSuspendState 0,1,0',
                     ),
                   ),
@@ -146,53 +170,53 @@ class QuickControlsCard extends StatelessWidget {
     required Color color,
     required VoidCallback onTap,
   }) {
-    return InkWell(
-      onTap: isExecuting
-          ? null
-          : () {
-              HapticFeedback.mediumImpact();
-              onTap();
-            },
-      borderRadius: BorderRadius.circular(4),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        decoration: BoxDecoration(
-          color: DeckColors.surfaceInset,
-          border: Border.all(color: DeckColors.borderSubtle, width: 1),
-          borderRadius: BorderRadius.circular(4),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(icon, size: 14, color: color),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w700,
-                      color: DeckColors.textHigh,
+    return Material(
+      color: DeckColors.background,
+      borderRadius: BorderRadius.circular(10),
+      child: InkWell(
+        onTap: isExecuting
+            ? null
+            : () {
+                HapticFeedback.mediumImpact();
+                onTap();
+              },
+        borderRadius: BorderRadius.circular(10),
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 64),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            border: Border.all(color: DeckColors.borderSubtle, width: 1),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(icon, size: 16, color: color),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      label,
+                      style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: DeckColors.primaryText,
+                          ),
                     ),
                   ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 3),
-            Text(
-              subtitle,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                fontSize: 9,
-                color: DeckColors.textMuted,
+                ],
               ),
-            ),
-          ],
+              const SizedBox(height: 4),
+              Text(
+                subtitle,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      fontSize: 11,
+                      color: DeckColors.secondaryText,
+                    ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -202,22 +226,24 @@ class QuickControlsCard extends StatelessWidget {
     BuildContext context, {
     required String title,
     required String message,
+    required String confirmLabel,
+    required Color confirmColor,
     required VoidCallback onConfirm,
   }) {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: DeckColors.surfaceElevated,
+        backgroundColor: DeckColors.surfaceSecondary,
         shape: RoundedRectangleBorder(
           side: const BorderSide(color: DeckColors.borderMedium, width: 1),
-          borderRadius: BorderRadius.circular(4),
+          borderRadius: BorderRadius.circular(14),
         ),
         title: Text(title, style: Theme.of(context).textTheme.titleMedium),
         content: Text(message, style: Theme.of(context).textTheme.bodyMedium),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('CANCEL'),
+            child: const Text('Cancel'),
           ),
           ElevatedButton(
             onPressed: () {
@@ -225,10 +251,10 @@ class QuickControlsCard extends StatelessWidget {
               onConfirm();
             },
             style: ElevatedButton.styleFrom(
-              backgroundColor: DeckColors.alertCrimson,
-              foregroundColor: DeckColors.surfaceCore,
+              backgroundColor: confirmColor,
+              foregroundColor: DeckColors.background,
             ),
-            child: const Text('CONFIRM'),
+            child: Text(confirmLabel),
           ),
         ],
       ),

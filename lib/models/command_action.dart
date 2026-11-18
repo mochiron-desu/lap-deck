@@ -74,11 +74,11 @@ class CommandAction {
       icon: Icons.hub,
       category: ActionCategory.tailscale,
     ),
-    const CommandAction(
+    CommandAction(
       id: 'act-lock-screen',
       label: 'LOCK DISPLAY',
       description: 'Instantly lock active user graphical session',
-      command: 'loginctl lock-session 2>/dev/null || gnome-screensaver-command -l 2>/dev/null || echo "session locked"',
+      command: HostTarget.defaultHosts.first.lockSessionCommand,
       icon: Icons.lock_outline,
       category: ActionCategory.power,
       isDestructive: true,

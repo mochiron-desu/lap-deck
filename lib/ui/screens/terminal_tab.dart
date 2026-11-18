@@ -61,12 +61,19 @@ class _TerminalTabState extends State<TerminalTab> {
     }
   }
 
-  Future<void> _handleConnect() async {
-    final host = widget.activeHost;
-    if (host == null) return;
+  Future<void> _handleConnect({
+    HostTarget? explicitTarget,
+    bool forceReconnect = false,
+  }) async {
+    final target = explicitTarget ?? widget.activeHost;
+    if (target == null) return;
 
-    final secret = await widget.storage.getHostCredential(host.id);
-    await widget.controller.connect(host, secret: secret);
+    final secret = await widget.storage.getHostCredential(target.id);
+    await widget.controller.connect(
+      target,
+      secret: secret,
+      forceReconnect: forceReconnect,
+    );
   }
 
   void _handleSubmit() {
@@ -97,11 +104,16 @@ class _TerminalTabState extends State<TerminalTab> {
   Widget build(BuildContext context) {
     final isConnected = widget.controller.isConnected;
     final isConnecting = widget.controller.isConnecting;
-    final host = widget.activeHost;
+    final selectedTarget = widget.activeHost;
+    final connectedHost = widget.controller.connectedHost;
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Terminal'),
+        title: Text(
+          isConnected && connectedHost != null
+              ? 'Terminal · ${connectedHost.name}'
+              : 'Terminal',
+        ),
         backgroundColor: DeckColors.background,
         elevation: 0,
         actions: [
@@ -109,20 +121,26 @@ class _TerminalTabState extends State<TerminalTab> {
             IconButton(
               icon: const Icon(Icons.remove, size: 18),
               tooltip: 'Smaller font',
-              onPressed: () => widget.controller.setFontSize(widget.controller.fontSize - 1),
+              onPressed: () => widget.controller
+                  .setFontSize(widget.controller.fontSize - 1),
             ),
             IconButton(
               icon: const Icon(Icons.add, size: 18),
               tooltip: 'Larger font',
-              onPressed: () => widget.controller.setFontSize(widget.controller.fontSize + 1),
+              onPressed: () => widget.controller
+                  .setFontSize(widget.controller.fontSize + 1),
             ),
             IconButton(
               icon: const Icon(Icons.copy, size: 16),
               tooltip: 'Copy buffer',
               onPressed: () {
-                Clipboard.setData(ClipboardData(text: widget.controller.buffer));
+                Clipboard.setData(
+                  ClipboardData(text: widget.controller.buffer),
+                );
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Terminal output copied to clipboard')),
+                  const SnackBar(
+                    content: Text('Terminal output copied to clipboard'),
+                  ),
                 );
               },
             ),
@@ -132,7 +150,11 @@ class _TerminalTabState extends State<TerminalTab> {
               onPressed: widget.controller.clearBuffer,
             ),
             IconButton(
-              icon: const Icon(Icons.power_settings_new, size: 18, color: DeckColors.error),
+              icon: const Icon(
+                Icons.power_settings_new,
+                size: 18,
+                color: DeckColors.error,
+              ),
               tooltip: 'Disconnect',
               onPressed: widget.controller.disconnect,
             ),
@@ -140,14 +162,34 @@ class _TerminalTabState extends State<TerminalTab> {
         ],
       ),
       body: SafeArea(
-        child: isConnected ? _buildActiveTerminalView(host) : _buildLandingState(host, isConnecting),
+        child: isConnected
+            ? _buildActiveTerminalView(connectedHost, selectedTarget)
+            : _buildLandingState(selectedTarget, isConnecting),
       ),
     );
   }
 
   Widget _buildLandingState(HostTarget? host, bool isConnecting) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+    final reachColor = host == null
+        ? DeckColors.mutedText
+        : switch (host.peerStatus) {
+            PeerStatus.online => DeckColors.healthy,
+            PeerStatus.connecting => DeckColors.informational,
+            PeerStatus.unreachable || PeerStatus.offline => DeckColors.error,
+            PeerStatus.unknown => DeckColors.mutedText,
+          };
+
+    final sshColor = host == null
+        ? DeckColors.mutedText
+        : switch (host.sshStatus) {
+            ServiceStatus.available => DeckColors.healthy,
+            ServiceStatus.connecting => DeckColors.informational,
+            ServiceStatus.unavailable => DeckColors.error,
+            ServiceStatus.unknown => DeckColors.mutedText,
+          };
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
@@ -159,68 +201,209 @@ class _TerminalTabState extends State<TerminalTab> {
               shape: BoxShape.circle,
               border: Border.all(color: DeckColors.borderSubtle, width: 1),
             ),
-            child: const Icon(Icons.terminal, size: 30, color: DeckColors.primaryAccent),
+            child: const Icon(
+              Icons.terminal,
+              size: 30,
+              color: DeckColors.primaryAccent,
+            ),
           ),
           const SizedBox(height: 16),
           Text(
             'Interactive PTY Terminal',
-            style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+            style: Theme.of(context)
+                .textTheme
+                .titleLarge
+                ?.copyWith(fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 8),
           Text(
-            'Establish an encrypted xterm-256color interactive shell directly into your peer workstation.',
+            'Establish an encrypted xterm-256color shell directly into your selected target workstation.',
             textAlign: TextAlign.center,
             style: Theme.of(context).textTheme.bodyMedium,
           ),
           const SizedBox(height: 24),
 
-          // Target Host Card
+          // Target Host Identity & Connection State Card
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
               color: DeckColors.surfaceSecondary,
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(14),
               border: Border.all(color: DeckColors.borderSubtle, width: 1),
             ),
-            child: Row(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(
-                  host?.os == HostOs.windows ? Icons.window : Icons.terminal,
-                  size: 20,
-                  color: DeckColors.primaryAccent,
+                Row(
+                  children: [
+                    const Icon(
+                      Icons.ads_click,
+                      size: 14,
+                      color: DeckColors.primaryAccent,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      'TARGET IDENTITY',
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                            fontSize: 10,
+                            letterSpacing: 0.8,
+                            fontWeight: FontWeight.w700,
+                            color: DeckColors.secondaryText,
+                          ),
+                    ),
+                    const Spacer(),
+                    PopupMenuButton<HostTarget>(
+                      tooltip: 'Change target device',
+                      onSelected: widget.onSelectHost,
+                      color: DeckColors.surfaceElevated,
+                      itemBuilder: (ctx) => widget.hosts.map((h) {
+                        return PopupMenuItem(
+                          value: h,
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  h.name,
+                                  style: const TextStyle(
+                                    color: DeckColors.primaryText,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                h.reachabilityLabel,
+                                style: const TextStyle(
+                                  color: DeckColors.secondaryText,
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      }).toList(),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 5,
+                        ),
+                        decoration: BoxDecoration(
+                          color: DeckColors.surfaceElevated,
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: DeckColors.borderSubtle),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              'Change target',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: DeckColors.primaryAccent,
+                              ),
+                            ),
+                            SizedBox(width: 4),
+                            Icon(
+                              Icons.unfold_more,
+                              size: 14,
+                              color: DeckColors.primaryAccent,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Icon(
+                      host?.os == HostOs.windows
+                          ? Icons.window
+                          : Icons.terminal,
+                      size: 22,
+                      color: DeckColors.primaryAccent,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            host?.name ?? 'No host selected',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 17,
+                              color: DeckColors.primaryText,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            host != null
+                                ? '${host.osDisplayName} · ${host.username}@${host.tailscaleIp}:${host.port}'
+                                : 'Select a peer device to connect',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: DeckColors.secondaryText,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                if (host != null) ...[
+                  const Divider(color: DeckColors.borderSubtle, height: 22),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(
-                        host?.name ?? 'No host selected',
-                        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15, color: DeckColors.primaryText),
+                      const Text(
+                        'Host reachability',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: DeckColors.secondaryText,
+                        ),
                       ),
                       Text(
-                        '${host?.tailscaleIp} • Port ${host?.port ?? 22}',
-                        style: const TextStyle(fontSize: 12, color: DeckColors.mutedText),
+                        host.hasFreshLatency
+                            ? '${host.reachabilityLabel} (${host.pingMs} ms)'
+                            : host.reachabilityLabel,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: reachColor,
+                        ),
                       ),
                     ],
                   ),
-                ),
-                // Host Switcher Popup
-                PopupMenuButton<HostTarget>(
-                  icon: const Icon(Icons.unfold_more, size: 20, color: DeckColors.secondaryText),
-                  onSelected: widget.onSelectHost,
-                  color: DeckColors.surfaceElevated,
-                  itemBuilder: (ctx) => widget.hosts.map((h) {
-                    return PopupMenuItem(
-                      value: h,
-                      child: Text(h.name, style: const TextStyle(color: DeckColors.primaryText, fontSize: 13)),
-                    );
-                  }).toList(),
-                ),
+                  const SizedBox(height: 6),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'SSH service state',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: DeckColors.secondaryText,
+                        ),
+                      ),
+                      Text(
+                        host.sshStatusLabel,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: sshColor,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ],
             ),
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 20),
 
           // Connect Primary Action
           SizedBox(
@@ -231,19 +414,31 @@ class _TerminalTabState extends State<TerminalTab> {
                   ? const SizedBox(
                       width: 16,
                       height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: DeckColors.background),
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: DeckColors.background,
+                      ),
                     )
                   : const Icon(Icons.login, size: 18),
               label: Text(
-                isConnecting ? 'Connecting...' : 'Connect to ${host?.name ?? "Host"}',
-                style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+                isConnecting
+                    ? 'Connecting to ${host?.name ?? "host"}...'
+                    : 'Connect to ${host?.name ?? "Host"}',
+                style: const TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 14,
+                ),
               ),
               style: ElevatedButton.styleFrom(
                 backgroundColor: DeckColors.primaryAccent,
                 foregroundColor: DeckColors.background,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
               ),
-              onPressed: isConnecting || host == null ? null : _handleConnect,
+              onPressed: isConnecting || host == null
+                  ? null
+                  : () => _handleConnect(explicitTarget: host),
             ),
           ),
         ],
@@ -251,50 +446,124 @@ class _TerminalTabState extends State<TerminalTab> {
     );
   }
 
-  Widget _buildActiveTerminalView(HostTarget? host) {
+  Widget _buildActiveTerminalView(
+    HostTarget? connectedHost,
+    HostTarget? selectedTarget,
+  ) {
+    final host = connectedHost ?? selectedTarget;
+    final isTargetMismatch = connectedHost != null &&
+        selectedTarget != null &&
+        connectedHost.id != selectedTarget.id;
+
     return Column(
       children: [
-        // Status Bar
+        // Status Bar showing actual connected PTY host
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
           decoration: const BoxDecoration(
             color: DeckColors.surfaceSecondary,
-            border: Border(bottom: BorderSide(color: DeckColors.borderSubtle, width: 1)),
+            border: Border(
+              bottom: BorderSide(color: DeckColors.borderSubtle, width: 1),
+            ),
           ),
           child: Row(
             children: [
               Container(
-                width: 6,
-                height: 6,
-                decoration: const BoxDecoration(color: DeckColors.healthy, shape: BoxShape.circle),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                'LIVE PTY • ${host?.username}@${host?.name}',
-                style: GoogleFonts.jetBrainsMono(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
+                width: 7,
+                height: 7,
+                decoration: const BoxDecoration(
                   color: DeckColors.healthy,
+                  shape: BoxShape.circle,
                 ),
               ),
-              const Spacer(),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'LIVE PTY · ${host?.username}@${host?.name} (${host?.tailscaleIp})',
+                  style: GoogleFonts.jetBrainsMono(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: DeckColors.healthy,
+                  ),
+                ),
+              ),
               Text(
                 '${widget.controller.fontSize.toInt()}sp',
-                style: GoogleFonts.jetBrainsMono(fontSize: 10, color: DeckColors.mutedText),
+                style: GoogleFonts.jetBrainsMono(
+                  fontSize: 10,
+                  color: DeckColors.mutedText,
+                ),
               ),
             ],
           ),
         ),
 
+        // Safety Banner if global target changed while PTY remains on original host
+        if (isTargetMismatch)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            decoration: BoxDecoration(
+              color: DeckColors.warning.withValues(alpha: 0.14),
+              border: const Border(
+                bottom: BorderSide(color: DeckColors.borderSubtle, width: 1),
+              ),
+            ),
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.info_outline,
+                  size: 16,
+                  color: DeckColors.warning,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Active shell is on ${connectedHost.name}. Selected target is ${selectedTarget.name}.',
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: DeckColors.primaryText,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+                TextButton(
+                  onPressed: () => _handleConnect(
+                    explicitTarget: selectedTarget,
+                    forceReconnect: true,
+                  ),
+                  style: TextButton.styleFrom(
+                    foregroundColor: DeckColors.primaryAccent,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                    minimumSize: const Size(48, 32),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  child: Text(
+                    'Switch to ${selectedTarget.name}',
+                    style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
         // Terminal Output Screen
         Expanded(
           child: Container(
+            width: double.infinity,
             color: DeckColors.background,
             padding: const EdgeInsets.all(12),
             child: SingleChildScrollView(
               controller: _scrollController,
               child: SelectableText(
-                widget.controller.buffer.isEmpty ? '// Terminal connected. Ready.\r\n' : widget.controller.buffer,
+                widget.controller.buffer.isEmpty
+                    ? '// Terminal connected to ${host?.name ?? "host"}. Ready.\r\n'
+                    : widget.controller.buffer,
                 style: GoogleFonts.jetBrainsMono(
                   fontSize: widget.controller.fontSize,
                   color: DeckColors.terminalText,
@@ -310,58 +579,75 @@ class _TerminalTabState extends State<TerminalTab> {
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
           decoration: const BoxDecoration(
             color: DeckColors.surfaceSecondary,
-            border: Border(top: BorderSide(color: DeckColors.borderSubtle, width: 1)),
+            border: Border(
+              top: BorderSide(color: DeckColors.borderSubtle, width: 1),
+            ),
           ),
           child: SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(
               children: [
-                _buildKeybarChip('CTRL', isActive: _isCtrlActive, onTap: () {
-                  HapticFeedback.lightImpact();
-                  setState(() => _isCtrlActive = !_isCtrlActive);
-                }),
-                _buildKeybarChip('CTRL-C', onTap: () => _sendSpecialKey('\x03')),
+                _buildKeybarChip(
+                  'CTRL',
+                  isActive: _isCtrlActive,
+                  onTap: () {
+                    HapticFeedback.lightImpact();
+                    setState(() => _isCtrlActive = !_isCtrlActive);
+                  },
+                ),
+                _buildKeybarChip(
+                  'CTRL-C',
+                  onTap: () => _sendSpecialKey('\x03'),
+                ),
                 _buildKeybarChip('ESC', onTap: () => _sendSpecialKey('\x1b')),
                 _buildKeybarChip('TAB', onTap: () => _sendSpecialKey('\t')),
                 _buildKeybarChip('|', onTap: () => _sendSpecialKey('|')),
                 _buildKeybarChip('~', onTap: () => _sendSpecialKey('~')),
                 _buildKeybarChip('/', onTap: () => _sendSpecialKey('/')),
-                _buildKeybarChip('↑', onTap: () {
-                  final h = widget.controller.history;
-                  if (h.isNotEmpty && _historyIndex > 0) {
-                    _historyIndex--;
-                    _inputController.text = h[_historyIndex];
-                  } else {
-                    _sendSpecialKey('\x1b[A');
-                  }
-                }),
-                _buildKeybarChip('↓', onTap: () {
-                  final h = widget.controller.history;
-                  if (h.isNotEmpty && _historyIndex < h.length - 1) {
-                    _historyIndex++;
-                    _inputController.text = h[_historyIndex];
-                  } else {
-                    _sendSpecialKey('\x1b[B');
-                  }
-                }),
+                _buildKeybarChip(
+                  '↑',
+                  onTap: () {
+                    final h = widget.controller.history;
+                    if (h.isNotEmpty && _historyIndex > 0) {
+                      _historyIndex--;
+                      _inputController.text = h[_historyIndex];
+                    } else {
+                      _sendSpecialKey('\x1b[A');
+                    }
+                  },
+                ),
+                _buildKeybarChip(
+                  '↓',
+                  onTap: () {
+                    final h = widget.controller.history;
+                    if (h.isNotEmpty && _historyIndex < h.length - 1) {
+                      _historyIndex++;
+                      _inputController.text = h[_historyIndex];
+                    } else {
+                      _sendSpecialKey('\x1b[B');
+                    }
+                  },
+                ),
               ],
             ),
           ),
         ),
 
-        // Input Line
+        // Input Line showing target prompt context
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           decoration: const BoxDecoration(
             color: DeckColors.surfaceElevated,
-            border: Border(top: BorderSide(color: DeckColors.borderSubtle, width: 1)),
+            border: Border(
+              top: BorderSide(color: DeckColors.borderSubtle, width: 1),
+            ),
           ),
           child: Row(
             children: [
               Text(
-                '\$',
+                '${host?.name ?? ""}\$',
                 style: GoogleFonts.jetBrainsMono(
-                  fontSize: 14,
+                  fontSize: 12,
                   fontWeight: FontWeight.w700,
                   color: DeckColors.primaryAccent,
                 ),
@@ -370,11 +656,14 @@ class _TerminalTabState extends State<TerminalTab> {
               Expanded(
                 child: TextField(
                   controller: _inputController,
-                  style: GoogleFonts.jetBrainsMono(fontSize: 13, color: DeckColors.primaryText),
-                  decoration: const InputDecoration(
-                    hintText: 'Enter command or keystroke...',
+                  style: GoogleFonts.jetBrainsMono(
+                    fontSize: 13,
+                    color: DeckColors.primaryText,
+                  ),
+                  decoration: InputDecoration(
+                    hintText: 'Run command on ${host?.name ?? "host"}...',
                     isDense: true,
-                    contentPadding: EdgeInsets.symmetric(vertical: 6),
+                    contentPadding: const EdgeInsets.symmetric(vertical: 6),
                     border: InputBorder.none,
                     enabledBorder: InputBorder.none,
                     focusedBorder: InputBorder.none,
@@ -384,7 +673,11 @@ class _TerminalTabState extends State<TerminalTab> {
                 ),
               ),
               IconButton(
-                icon: const Icon(Icons.arrow_upward, size: 18, color: DeckColors.primaryAccent),
+                icon: const Icon(
+                  Icons.arrow_upward,
+                  size: 18,
+                  color: DeckColors.primaryAccent,
+                ),
                 onPressed: _handleSubmit,
               ),
             ],
@@ -394,7 +687,11 @@ class _TerminalTabState extends State<TerminalTab> {
     );
   }
 
-  Widget _buildKeybarChip(String label, {bool isActive = false, required VoidCallback onTap}) {
+  Widget _buildKeybarChip(
+    String label, {
+    bool isActive = false,
+    required VoidCallback onTap,
+  }) {
     return Padding(
       padding: const EdgeInsets.only(right: 6),
       child: InkWell(
@@ -403,10 +700,12 @@ class _TerminalTabState extends State<TerminalTab> {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
           decoration: BoxDecoration(
-            color: isActive ? DeckColors.primaryAccent : DeckColors.surfaceElevated,
+            color:
+                isActive ? DeckColors.primaryAccent : DeckColors.surfaceElevated,
             borderRadius: BorderRadius.circular(6),
             border: Border.all(
-              color: isActive ? DeckColors.primaryAccent : DeckColors.borderSubtle,
+              color:
+                  isActive ? DeckColors.primaryAccent : DeckColors.borderSubtle,
               width: 1,
             ),
           ),

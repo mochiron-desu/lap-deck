@@ -128,16 +128,24 @@ class VitalsCard extends StatelessWidget {
               ),
               Expanded(
                 child: Text(
-                  vitals.uptime,
+                  vitals.isVerified ? vitals.uptime : 'Telemetry not verified',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     fontSize: 11,
                     fontWeight: FontWeight.w600,
-                    color: DeckColors.primaryText,
+                    color: vitals.isVerified ? DeckColors.primaryText : DeckColors.mutedText,
                   ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
+              if (vitals.isVerified)
+                Text(
+                  '${vitals.timestamp.hour.toString().padLeft(2, '0')}:${vitals.timestamp.minute.toString().padLeft(2, '0')}:${vitals.timestamp.second.toString().padLeft(2, '0')}',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    fontSize: 10,
+                    color: DeckColors.mutedText,
+                  ),
+                ),
             ],
           ),
         ],

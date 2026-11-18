@@ -47,7 +47,17 @@ class StorageService {
 
     try {
       final List<dynamic> list = json.decode(raw);
-      return list.map((e) => HostTarget.fromMap(e as Map<String, dynamic>)).toList();
+      final hosts = list
+          .map((e) => HostTarget.fromMap(e as Map<String, dynamic>))
+          .map((h) {
+            // Auto-migrate legacy default Windows username if present
+            if (h.id == 'host-mochirondesu' && h.username == 'suraj') {
+              return h.copyWith(username: 'qwerk');
+            }
+            return h;
+          })
+          .toList();
+      return hosts;
     } catch (_) {
       return HostTarget.defaultHosts;
     }

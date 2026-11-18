@@ -153,7 +153,7 @@ class _SettingsTabState extends State<SettingsTab> {
                 children: [
                   const ListTile(
                     title: Text('Version', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
-                    trailing: Text('v1.1.0 (Build 36)', style: TextStyle(fontSize: 12, color: DeckColors.mutedText)),
+                    trailing: Text('v1.2.0 (Build 37)', style: TextStyle(fontSize: 12, color: DeckColors.mutedText)),
                   ),
                   const Divider(color: DeckColors.borderSubtle, height: 1),
                   const ListTile(

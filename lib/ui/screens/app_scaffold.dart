@@ -25,113 +25,272 @@ class AppScaffold extends StatefulWidget {
   State<AppScaffold> createState() => _AppScaffoldState();
 }
 
-class _AppScaffoldState extends State<AppScaffold> {
+class _AppScaffoldState extends State<AppScaffold> with WidgetsBindingObserver {
   int _currentTabIndex = 0;
   late List<HostTarget> _hosts;
-  HostTarget? _activeHost;
-  VitalsData _vitals = VitalsData.empty();
-  LapdogStatus _lapdogStatus = const LapdogStatus();
+  String? _selectedHostId;
 
-  bool _isVitalsLoading = false;
-  String? _connectionError;
+  // Per-host cached telemetry keyed by stable host.id
+  final Map<String, TelemetryBundle> _telemetryByHost = {};
+
+  bool _isRefreshing = false;
+  bool _localTailscaleActive = false;
+  DateTime? _lastNetworkCheckAt;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _hosts = widget.storage.loadHosts();
-    final activeId = widget.storage.getActiveHostId();
+    final savedId = widget.storage.getActiveHostId();
     if (_hosts.isNotEmpty) {
-      _activeHost = _hosts.firstWhere(
-        (h) => h.id == activeId,
-        orElse: () => _hosts.first,
-      );
+      final match = _hosts.where((h) => h.id == savedId);
+      _selectedHostId = match.isNotEmpty ? match.first.id : _hosts.first.id;
+      widget.storage.setActiveHostId(_selectedHostId!);
     }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _refreshNetworkState();
     });
   }
 
-  Future<void> _refreshNetworkState() async {
-    final host = _activeHost;
-    if (host == null) return;
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
 
-    setState(() {
-      _isVitalsLoading = true;
-      _connectionError = null;
-    });
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // Refresh reachability on resume without changing selected target
+      _refreshNetworkState();
+    }
+  }
 
-    final secret = await widget.storage.getHostCredential(host.id);
+  HostTarget? get _activeHost {
+    if (_hosts.isEmpty) return null;
+    if (_selectedHostId != null) {
+      for (final h in _hosts) {
+        if (h.id == _selectedHostId) return h;
+      }
+    }
+    return _hosts.first;
+  }
+
+  VitalsData get _activeVitals {
+    final id = _activeHost?.id;
+    if (id == null) return VitalsData.empty();
+    return _telemetryByHost[id]?.vitals ?? VitalsData.empty();
+  }
+
+  LapdogStatus get _activeLapdogStatus {
+    final id = _activeHost?.id;
+    if (id == null) return const LapdogStatus();
+    return _telemetryByHost[id]?.lapdog ?? const LapdogStatus();
+  }
+
+  Future<void> _refreshNetworkState({String? explicitTargetId}) async {
+    if (_hosts.isEmpty) return;
+
+    final targetIdToInspect = explicitTargetId ?? _activeHost?.id;
+    final snapshotHosts = List<HostTarget>.from(_hosts);
+
+    if (mounted) {
+      setState(() {
+        _isRefreshing = true;
+        _hosts = _hosts.map((h) {
+          if (h.peerStatus == PeerStatus.unknown) {
+            return h.copyWith(
+              peerStatus: PeerStatus.connecting,
+              sshStatus: ServiceStatus.connecting,
+            );
+          }
+          return h;
+        }).toList();
+      });
+    }
 
     try {
-      // 1. Parallel live reachability test across all known nodes
+      // 1. Parallel live reachability test across all known peers
       final reachabilityResults = await Future.wait(
-        _hosts.map((h) => widget.sshService.checkReachability(h)),
+        snapshotHosts.map((h) => widget.sshService.checkReachability(h)),
       );
 
-      final updatedHosts = <HostTarget>[];
-      for (int i = 0; i < _hosts.length; i++) {
-        final res = reachabilityResults[i];
-        updatedHosts.add(_hosts[i].copyWith(
-          isOnline: res.isOnline,
-          pingMs: res.latencyMs,
-          isDirect: res.isDirect,
-        ));
-      }
-
-      final updatedActive = updatedHosts.firstWhere(
-        (h) => h.id == host.id,
-        orElse: () => updatedHosts.first,
-      );
-
-      // 2. Fetch full telemetry bundle only if target host is reachable
-      TelemetryBundle? bundle;
-      if (updatedActive.isOnline) {
-        bundle = await widget.sshService.fetchTelemetryBundle(updatedActive, secret: secret);
+      bool anyTailscaleActive = false;
+      final Map<String, HostReachability> reachById = {};
+      for (int i = 0; i < snapshotHosts.length; i++) {
+        final r = reachabilityResults[i];
+        reachById[snapshotHosts[i].id] = r;
+        if (r.localTailscaleActive || (r.isOnline && !r.isDirect)) {
+          anyTailscaleActive = true;
+        }
       }
 
       if (mounted) {
         setState(() {
-          _hosts = updatedHosts;
-          _activeHost = updatedActive;
-          if (bundle != null) {
-            _vitals = bundle.vitals;
-            _lapdogStatus = bundle.lapdog;
-            _connectionError = null;
-          } else if (!updatedActive.isOnline) {
-            _vitals = VitalsData.empty();
-            _connectionError = 'Cannot reach ${updatedActive.name} (${updatedActive.tailscaleIp}). Check Tailscale VPN.';
-          } else {
-            _connectionError = 'Failed to fetch telemetry from ${updatedActive.name}.';
-          }
+          _localTailscaleActive = anyTailscaleActive;
+          _lastNetworkCheckAt = DateTime.now();
+          _hosts = _hosts.map((h) {
+            final r = reachById[h.id];
+            if (r == null) return h;
+            return h.copyWith(
+              isOnline: r.isOnline,
+              peerStatus: r.peerStatus,
+              sshStatus: r.sshPortStatus,
+              pingMs: r.isOnline ? r.latencyMs : null,
+              clearPing: !r.isOnline,
+              isDirect: r.isDirect,
+              lastChecked: r.checkedAt,
+              lastError: r.errorDetail,
+              clearError: r.errorDetail == null,
+              agentStatus: r.sshPortStatus == ServiceStatus.available
+                  ? h.agentStatus
+                  : ServiceStatus.unavailable,
+              lapdogDaemonStatus: r.sshPortStatus == ServiceStatus.available
+                  ? h.lapdogDaemonStatus
+                  : ServiceStatus.unavailable,
+            );
+          }).toList();
         });
+      }
+
+      // 2. Fetch telemetry bundle for the inspected target host if its SSH port is reachable
+      if (targetIdToInspect != null) {
+        HostTarget? targetHost;
+        for (final h in _hosts) {
+          if (h.id == targetIdToInspect) {
+            targetHost = h;
+            break;
+          }
+        }
+
+        if (targetHost != null &&
+            targetHost.peerStatus == PeerStatus.online &&
+            targetHost.sshStatus == ServiceStatus.available) {
+          final secret = await widget.storage.getHostCredential(targetHost.id);
+          final bundle = await widget.sshService.fetchTelemetryBundle(
+            targetHost,
+            secret: secret,
+          );
+
+          if (mounted) {
+            setState(() {
+              if (bundle != null) {
+                _telemetryByHost[targetHost!.id] = bundle;
+                _hosts = _hosts.map((h) {
+                  if (h.id != targetHost!.id) return h;
+                  return h.copyWith(
+                    sshStatus: ServiceStatus.available,
+                    agentStatus: ServiceStatus.available,
+                    lapdogDaemonStatus: bundle.lapdog.isInstalled
+                        ? ServiceStatus.available
+                        : ServiceStatus.unavailable,
+                    lastConnected: bundle.fetchedAt,
+                    clearError: true,
+                  );
+                }).toList();
+              } else {
+                // TCP port opened, but SSH auth or command execution failed.
+                // Peer remains online; only SSH/Agent subsystem is marked unavailable.
+                _hosts = _hosts.map((h) {
+                  if (h.id != targetHost!.id) return h;
+                  return h.copyWith(
+                    sshStatus: ServiceStatus.unavailable,
+                    agentStatus: ServiceStatus.unavailable,
+                    lapdogDaemonStatus: ServiceStatus.unknown,
+                    lastError:
+                        'Host ${targetHost.name} is reachable on the network, but SSH authentication or telemetry execution failed.',
+                  );
+                }).toList();
+              }
+            });
+          }
+        }
       }
     } catch (e) {
       if (mounted) {
         setState(() {
-          _connectionError = 'Timeout reaching ${host.name}. Ensure device is online on Tailscale.';
+          _lastNetworkCheckAt = DateTime.now();
         });
       }
     } finally {
       if (mounted) {
-        setState(() => _isVitalsLoading = false);
+        setState(() => _isRefreshing = false);
       }
     }
   }
 
   void _handleSelectHost(HostTarget host) {
-    setState(() => _activeHost = host);
+    final previousId = _selectedHostId;
+    setState(() {
+      _selectedHostId = host.id;
+    });
     widget.storage.setActiveHostId(host.id);
-    _refreshNetworkState();
+    if (previousId != host.id || !_telemetryByHost.containsKey(host.id)) {
+      _refreshNetworkState(explicitTargetId: host.id);
+    }
   }
 
   void _reloadHosts() {
+    final loaded = widget.storage.loadHosts();
     setState(() {
-      _hosts = widget.storage.loadHosts();
+      // Preserve live runtime telemetry/reachability for existing hosts by id
+      final existingById = {for (final h in _hosts) h.id: h};
+      _hosts = loaded.map((newH) {
+        final prev = existingById[newH.id];
+        if (prev == null) return newH;
+        return newH.copyWith(
+          isOnline: prev.isOnline,
+          peerStatus: prev.peerStatus,
+          sshStatus: prev.sshStatus,
+          agentStatus: prev.agentStatus,
+          lapdogDaemonStatus: prev.lapdogDaemonStatus,
+          pingMs: prev.pingMs,
+          isDirect: prev.isDirect,
+          lastChecked: prev.lastChecked,
+          lastConnected: prev.lastConnected,
+          lastError: prev.lastError,
+        );
+      }).toList();
+
+      // Only fallback if the selected device was explicitly deleted by the user
+      if (_selectedHostId != null &&
+          !_hosts.any((h) => h.id == _selectedHostId)) {
+        _selectedHostId = _hosts.isNotEmpty ? _hosts.first.id : null;
+        if (_selectedHostId != null) {
+          widget.storage.setActiveHostId(_selectedHostId!);
+        }
+      }
+    });
+    _refreshNetworkState();
+  }
+
+  void _handleUpdateHostTelemetry(String hostId, TelemetryBundle bundle) {
+    if (!mounted) return;
+    setState(() {
+      _telemetryByHost[hostId] = bundle;
+      _hosts = _hosts.map((h) {
+        if (h.id != hostId) return h;
+        return h.copyWith(
+          isOnline: true,
+          peerStatus: PeerStatus.online,
+          sshStatus: ServiceStatus.available,
+          agentStatus: ServiceStatus.available,
+          lapdogDaemonStatus: bundle.lapdog.isInstalled
+              ? ServiceStatus.available
+              : ServiceStatus.unavailable,
+          lastChecked: bundle.fetchedAt,
+          lastConnected: bundle.fetchedAt,
+          clearError: true,
+        );
+      }).toList();
     });
   }
 
   @override
   Widget build(BuildContext context) {
+    final activeHost = _activeHost;
+
     return PopScope(
       canPop: _currentTabIndex == 0,
       onPopInvokedWithResult: (didPop, result) {
@@ -146,33 +305,38 @@ class _AppScaffoldState extends State<AppScaffold> {
             // Tab 0: Home
             HomeTab(
               hosts: _hosts,
-              activeHost: _activeHost,
-              vitals: _vitals,
-              lapdogStatus: _lapdogStatus,
-              isVitalsLoading: _isVitalsLoading,
-              connectionError: _connectionError,
+              activeHost: activeHost,
+              vitals: _activeVitals,
+              lapdogStatus: _activeLapdogStatus,
+              isVitalsLoading: _isRefreshing,
+              localTailscaleActive: _localTailscaleActive,
+              lastNetworkCheckAt: _lastNetworkCheckAt,
               storage: widget.storage,
               sshService: widget.sshService,
               terminalController: widget.terminalController,
               onSelectHost: _handleSelectHost,
-              onRefresh: _refreshNetworkState,
-              onNavigateTab: (index) => setState(() => _currentTabIndex = index),
+              onRefresh: () => _refreshNetworkState(),
+              onNavigateTab: (index) =>
+                  setState(() => _currentTabIndex = index),
               onHostsUpdated: _reloadHosts,
+              onTelemetryUpdated: _handleUpdateHostTelemetry,
             ),
             // Tab 1: Devices
             DevicesTab(
               hosts: _hosts,
-              activeHost: _activeHost,
+              activeHost: activeHost,
               storage: widget.storage,
               sshService: widget.sshService,
               terminalController: widget.terminalController,
               onSelectHost: _handleSelectHost,
               onHostsUpdated: _reloadHosts,
+              onRefresh: () => _refreshNetworkState(),
+              isRefreshing: _isRefreshing,
             ),
             // Tab 2: Terminal
             TerminalTab(
               hosts: _hosts,
-              activeHost: _activeHost,
+              activeHost: activeHost,
               controller: widget.terminalController,
               storage: widget.storage,
               onSelectHost: _handleSelectHost,
@@ -185,7 +349,8 @@ class _AppScaffoldState extends State<AppScaffold> {
         ),
         bottomNavigationBar: NavigationBar(
           selectedIndex: _currentTabIndex,
-          onDestinationSelected: (index) => setState(() => _currentTabIndex = index),
+          onDestinationSelected: (index) =>
+              setState(() => _currentTabIndex = index),
           destinations: const [
             NavigationDestination(
               icon: Icon(Icons.home_outlined),

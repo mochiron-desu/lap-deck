@@ -21,6 +21,12 @@ class TerminalSessionController extends ChangeNotifier {
   double get fontSize => _fontSize;
   List<String> get history => List.unmodifiable(_history);
 
+  /// Returns true if an active PTY session is already established for [host].
+  bool hasActiveSessionFor(HostTarget? host) {
+    if (host == null) return false;
+    return _isConnected && _connectedHost?.id == host.id;
+  }
+
   void setFontSize(double size) {
     _fontSize = size.clamp(9.0, 18.0);
     notifyListeners();
@@ -28,7 +34,6 @@ class TerminalSessionController extends ChangeNotifier {
 
   void appendOutput(String text) {
     _buffer += text;
-    // Cap buffer at 40,000 chars to maintain smooth 60/90/120fps scrolling on mobile
     if (_buffer.length > 40000) {
       _buffer = _buffer.substring(_buffer.length - 30000);
     }
@@ -40,12 +45,25 @@ class TerminalSessionController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<bool> connect(HostTarget host, {String? secret}) async {
+  Future<bool> connect(
+    HostTarget host, {
+    String? secret,
+    bool forceReconnect = false,
+  }) async {
     if (_isConnecting) return false;
+
+    // Reuse active PTY session if already connected to the same target host
+    if (!forceReconnect && hasActiveSessionFor(host)) {
+      _connectedHost = host;
+      notifyListeners();
+      return true;
+    }
 
     _isConnecting = true;
     _connectedHost = host;
-    appendOutput('\r\n[CONNECTING] Connecting to ${host.username}@${host.tailscaleIp}:${host.port}...\r\n');
+    appendOutput(
+      '\r\n[CONNECTING] Connecting to ${host.name} (${host.username}@${host.tailscaleIp}:${host.port})...\r\n',
+    );
     notifyListeners();
 
     final success = await _sshService.startInteractiveShell(
@@ -58,7 +76,9 @@ class TerminalSessionController extends ChangeNotifier {
       onDisconnected: () {
         _isConnected = false;
         _isConnecting = false;
-        appendOutput('\r\n[DISCONNECTED] SSH session closed by remote host.\r\n');
+        appendOutput(
+          '\r\n[DISCONNECTED] SSH session closed on ${_connectedHost?.name ?? "remote host"}.\r\n',
+        );
         notifyListeners();
       },
     );
@@ -67,9 +87,13 @@ class TerminalSessionController extends ChangeNotifier {
     _isConnected = success;
 
     if (success) {
-      appendOutput('[CONNECTED] PTY allocated (xterm-256color) • Ready.\r\n');
+      appendOutput(
+        '[CONNECTED] PTY allocated on ${host.name} (xterm-256color) • Ready.\r\n',
+      );
     } else {
-      appendOutput('[FAILED] Unable to establish SSH session. Check connection and Tailscale.\r\n');
+      appendOutput(
+        '[FAILED] Unable to establish SSH session to ${host.name} (${host.tailscaleIp}). Verify SSH service and network reachability.\r\n',
+      );
     }
 
     notifyListeners();
@@ -92,10 +116,11 @@ class TerminalSessionController extends ChangeNotifier {
   }
 
   Future<void> disconnect() async {
-    await _sshService.disconnect();
+    final hostName = _connectedHost?.name ?? 'host';
+    await _sshService.disconnectShell();
     _isConnected = false;
     _isConnecting = false;
-    appendOutput('\r\n[DISCONNECTED] Session terminated by user.\r\n');
+    appendOutput('\r\n[DISCONNECTED] Session on $hostName terminated by user.\r\n');
     notifyListeners();
   }
 }
