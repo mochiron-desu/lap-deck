@@ -849,27 +849,71 @@ echo "UNLOCKED"
     final String cmd;
     if (host.os == HostOs.windows) {
       cmd = r'''
+$ErrorActionPreference = 'SilentlyContinue'
+if (Get-Process -Name LogonUI,LockApp -ErrorAction SilentlyContinue) {
+  Write-Output "SCREENGRAB_FAILED"
+  exit 0
+}
 $code = @'
-Add-Type -AssemblyName System.Windows.Forms
-Add-Type -AssemblyName System.Drawing
-$s = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
-$b = New-Object System.Drawing.Bitmap($s.Width, $s.Height)
-$g = [System.Drawing.Graphics]::FromImage($b)
-$g.CopyFromScreen($s.Location, [System.Drawing.Point]::Empty, $s.Size)
-$tmp = "$env:TEMP\lapdeck_screen.jpg"
-$b.Save($tmp, [System.Drawing.Imaging.ImageFormat]::Jpeg)
-$g.Dispose()
-$b.Dispose()
+$ErrorActionPreference = 'Stop'
+try {
+  Add-Type -AssemblyName System.Windows.Forms
+  Add-Type -AssemblyName System.Drawing
+  $bounds = [System.Windows.Forms.SystemInformation]::VirtualScreen
+  $bmp = New-Object System.Drawing.Bitmap($bounds.Width, $bounds.Height)
+  $g = [System.Drawing.Graphics]::FromImage($bmp)
+  try {
+    $g.CopyFromScreen($bounds.Left, $bounds.Top, 0, 0, $bounds.Size)
+    $tmp = "$env:TEMP\lapdeck_screen.jpg"
+    $bmp.Save($tmp, [System.Drawing.Imaging.ImageFormat]::Jpeg)
+  } finally {
+    $g.Dispose()
+    $bmp.Dispose()
+  }
+} catch {
+  exit 1
+}
 '@
 $tmpScript = "$env:TEMP\lapdeck_grab_$([DateTimeOffset]::UtcNow.ToUnixTimeSeconds()).ps1"
 Set-Content -Path $tmpScript -Value $code -Encoding Ascii
-try {
-  & powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File $tmpScript 2>$null
-} catch {}
 $img = "$env:TEMP\lapdeck_screen.jpg"
+Remove-Item $img -Force -ErrorAction SilentlyContinue
+
+# Attempt interactive dispatch via Task Scheduler (/IT) to bridge Session 0 isolation
+$taskName = "LapDeckGrab_$([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())"
+$tr = "powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$tmpScript`""
+$taskCreated = $false
+try {
+  & schtasks.exe /Create /TN $taskName /TR $tr /SC ONCE /ST 00:00 /IT /F 2>$null | Out-Null
+  if ($LASTEXITCODE -eq 0) {
+    $taskCreated = $true
+    & schtasks.exe /Run /TN $taskName 2>$null | Out-Null
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    while (-not (Test-Path $img) -and ($sw.ElapsedMilliseconds -lt 3500)) {
+      Start-Sleep -Milliseconds 150
+    }
+  }
+} catch {}
+if ($taskCreated) {
+  & schtasks.exe /Delete /TN $taskName /F 2>$null | Out-Null
+}
+
+# Fallback to direct execution if scheduled task did not produce the image
+if (-not (Test-Path $img)) {
+  try {
+    & powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File $tmpScript 2>$null
+  } catch {}
+}
+
+# Verify output: file must exist and have non-trivial size (>1000 bytes)
 if (Test-Path $img) {
-  [Convert]::ToBase64String([System.IO.File]::ReadAllBytes($img))
+  $bytes = [System.IO.File]::ReadAllBytes($img)
   Remove-Item $img -Force -ErrorAction SilentlyContinue
+  if ($bytes.Length -gt 1000) {
+    [Convert]::ToBase64String($bytes)
+  } else {
+    Write-Output "SCREENGRAB_FAILED"
+  }
 } else {
   Write-Output "SCREENGRAB_FAILED"
 }
