@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:markdown/markdown.dart' as md;
 import '../../models/connector_models.dart';
 import '../../models/host_target.dart';
 import '../../services/connector_service.dart';
@@ -1451,13 +1453,12 @@ class _AiChatScreenState extends State<AiChatScreen>
                   ],
                 ),
                 const SizedBox(height: 4),
-                SelectableText(
-                  turn.prompt,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    color: DeckColors.primaryText,
-                    height: 1.4,
-                  ),
+                MarkdownBody(
+                  data: turn.prompt,
+                  selectable: true,
+                  extensionSet: md.ExtensionSet.gitHubFlavored,
+                  styleSheet: _buildOperatorMarkdownStyle(context),
+                  syntaxHighlighter: _DeckSyntaxHighlighter(),
                 ),
               ],
             ),
@@ -1742,13 +1743,23 @@ class _AiChatScreenState extends State<AiChatScreen>
 
               const SizedBox(height: 10),
               if (turn.response.isNotEmpty)
-                SelectableText(
-                  turn.response,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    color: DeckColors.primaryText,
-                    height: 1.45,
-                  ),
+                MarkdownBody(
+                  data: turn.response,
+                  selectable: true,
+                  extensionSet: md.ExtensionSet.gitHubFlavored,
+                  styleSheet: _buildAgentMarkdownStyle(context),
+                  syntaxHighlighter: _DeckSyntaxHighlighter(),
+                  onTapLink: (text, href, title) {
+                    if (href != null && href.isNotEmpty) {
+                      Clipboard.setData(ClipboardData(text: href));
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('Link copied to clipboard: $href'),
+                          duration: const Duration(seconds: 2),
+                        ),
+                      );
+                    }
+                  },
                 )
               else if (isStreamingCard)
                 const Text(
@@ -1919,6 +1930,160 @@ class _AiChatScreenState extends State<AiChatScreen>
             ),
         ],
       ),
+    );
+  }
+
+  MarkdownStyleSheet _buildAgentMarkdownStyle(BuildContext context) {
+    return MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
+      p: const TextStyle(
+        fontSize: 13,
+        color: DeckColors.primaryText,
+        height: 1.45,
+      ),
+      h1: GoogleFonts.inter(
+        fontSize: 16,
+        fontWeight: FontWeight.w700,
+        color: DeckColors.primaryText,
+        letterSpacing: -0.2,
+      ),
+      h2: GoogleFonts.inter(
+        fontSize: 15,
+        fontWeight: FontWeight.w700,
+        color: DeckColors.primaryText,
+        letterSpacing: -0.2,
+      ),
+      h3: GoogleFonts.inter(
+        fontSize: 14,
+        fontWeight: FontWeight.w600,
+        color: DeckColors.primaryAccent,
+      ),
+      h4: GoogleFonts.inter(
+        fontSize: 13,
+        fontWeight: FontWeight.w600,
+        color: DeckColors.primaryAccent,
+      ),
+      h5: GoogleFonts.inter(
+        fontSize: 12.5,
+        fontWeight: FontWeight.w600,
+        color: DeckColors.secondaryText,
+      ),
+      h6: GoogleFonts.inter(
+        fontSize: 12,
+        fontWeight: FontWeight.w600,
+        color: DeckColors.secondaryText,
+      ),
+      strong: const TextStyle(
+        fontWeight: FontWeight.w700,
+        color: DeckColors.primaryText,
+      ),
+      em: const TextStyle(
+        fontStyle: FontStyle.italic,
+        color: DeckColors.secondaryText,
+      ),
+      code: GoogleFonts.jetBrainsMono(
+        fontSize: 11.5,
+        color: DeckColors.terminalText,
+        backgroundColor: DeckColors.surfaceElevated,
+      ),
+      codeblockPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      codeblockDecoration: BoxDecoration(
+        color: DeckColors.background,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: DeckColors.borderSubtle),
+      ),
+      blockquote: GoogleFonts.inter(
+        fontSize: 12.5,
+        color: DeckColors.secondaryText,
+        fontStyle: FontStyle.italic,
+        height: 1.4,
+      ),
+      blockquotePadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      blockquoteDecoration: BoxDecoration(
+        color: DeckColors.surfaceElevated.withValues(alpha: 0.5),
+        border: const Border(
+          left: BorderSide(color: DeckColors.primaryAccent, width: 3),
+        ),
+        borderRadius: const BorderRadius.horizontal(right: Radius.circular(6)),
+      ),
+      listBullet: const TextStyle(
+        color: DeckColors.primaryAccent,
+        fontSize: 13,
+        fontWeight: FontWeight.w700,
+      ),
+      tableBorder: TableBorder.all(
+        color: DeckColors.borderSubtle,
+        width: 1,
+        borderRadius: BorderRadius.circular(6),
+      ),
+      tableHead: GoogleFonts.inter(
+        fontSize: 11.5,
+        fontWeight: FontWeight.w700,
+        color: DeckColors.primaryText,
+      ),
+      tableBody: GoogleFonts.inter(
+        fontSize: 11.5,
+        color: DeckColors.secondaryText,
+      ),
+      tableColumnWidth: const IntrinsicColumnWidth(),
+      tableCellsPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      tableHeadCellsPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      tableHeadCellsDecoration: const BoxDecoration(
+        color: DeckColors.surfaceElevated,
+      ),
+      a: const TextStyle(
+        color: DeckColors.informational,
+        decoration: TextDecoration.underline,
+      ),
+      horizontalRuleDecoration: const BoxDecoration(
+        border: Border(
+          top: BorderSide(color: DeckColors.borderSubtle, width: 1),
+        ),
+      ),
+      blockSpacing: 8.0,
+    );
+  }
+
+  MarkdownStyleSheet _buildOperatorMarkdownStyle(BuildContext context) {
+    return MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
+      p: const TextStyle(
+        fontSize: 13,
+        color: DeckColors.primaryText,
+        height: 1.4,
+      ),
+      strong: const TextStyle(
+        fontWeight: FontWeight.w700,
+        color: DeckColors.primaryText,
+      ),
+      em: const TextStyle(
+        fontStyle: FontStyle.italic,
+        color: DeckColors.secondaryText,
+      ),
+      code: GoogleFonts.jetBrainsMono(
+        fontSize: 11.5,
+        color: DeckColors.terminalText,
+        backgroundColor: DeckColors.background,
+      ),
+      codeblockPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      codeblockDecoration: BoxDecoration(
+        color: DeckColors.background,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: DeckColors.borderSubtle),
+      ),
+      blockSpacing: 6.0,
+    );
+  }
+}
+
+class _DeckSyntaxHighlighter extends SyntaxHighlighter {
+  @override
+  TextSpan format(String code) {
+    return TextSpan(
+      style: GoogleFonts.jetBrainsMono(
+        fontSize: 11.5,
+        color: DeckColors.terminalText,
+        height: 1.4,
+      ),
+      text: code,
     );
   }
 }

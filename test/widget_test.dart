@@ -1,3 +1,5 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lap_deck/models/host_target.dart';
 import 'package:lap_deck/models/command_action.dart';
@@ -473,5 +475,34 @@ void main() {
     expect(securityAlert, isNotNull);
     expect(securityAlert!.channelId, NotificationService.channelSecurity);
     expect(securityAlert.title, contains('Lapdog Security Alert'));
+  });
+
+  testWidgets('AiConversationTurn responses render structured Markdown on mobile views', (tester) async {
+    const sampleMarkdown = '''
+### Action Plan
+* Step 1: Check git branch
+* Step 2: Run build
+```bash
+flutter build apk
+```
+| Target | Status |
+| Windows | Ready |
+| Android | Building |
+''';
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: MarkdownBody(
+            data: sampleMarkdown,
+            selectable: true,
+          ),
+        ),
+      ),
+    );
+
+    expect(find.byType(MarkdownBody), findsOneWidget);
+    expect(find.textContaining('Action Plan'), findsOneWidget);
+    expect(find.textContaining('Step 1: Check git branch'), findsOneWidget);
   });
 }
