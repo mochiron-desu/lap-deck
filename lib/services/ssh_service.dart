@@ -863,6 +863,20 @@ Remove-Item $img -Force -ErrorAction SilentlyContinue
 $code = @'
 $ErrorActionPreference = 'Stop'
 try {
+  try {
+    $pinvoke = '[DllImport("user32.dll")] public static extern bool SetProcessDpiAwarenessContext(IntPtr c); [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();'
+    Add-Type -MemberDefinition $pinvoke -Name DpiNative -Namespace LapDeck -ErrorAction SilentlyContinue
+    if (![LapDeck.DpiNative]::SetProcessDpiAwarenessContext([IntPtr]-4)) {
+      if (![LapDeck.DpiNative]::SetProcessDpiAwarenessContext([IntPtr]-3)) {
+        [LapDeck.DpiNative]::SetProcessDPIAware() | Out-Null
+      }
+    }
+  } catch {
+    try {
+      [LapDeck.DpiNative]::SetProcessDPIAware() | Out-Null
+    } catch {}
+  }
+
   Add-Type -AssemblyName System.Windows.Forms
   Add-Type -AssemblyName System.Drawing
   $bounds = [System.Windows.Forms.SystemInformation]::VirtualScreen
