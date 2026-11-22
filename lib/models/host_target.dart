@@ -112,7 +112,7 @@ class HostTarget {
   /// run in non-interactive Session 0), `LockWorkStation` must be dispatched
   /// into the interactive console user session (Session 1+) via an interactive
   /// (`/IT`) scheduled task or `tsdiscon.exe`, followed by verifying that
-  /// `LogonUI` or `LockApp` is active.
+  /// `LogonUI` is active.
   String get lockSessionCommand {
     return switch (os) {
       HostOs.windows => r'''
@@ -125,12 +125,12 @@ if (Get-Command tsdiscon.exe -ErrorAction SilentlyContinue) {
 & rundll32.exe user32.dll,LockWorkStation 2>$null
 Start-Sleep -Milliseconds 900
 & schtasks.exe /Delete /TN "LapDeckLock" /F 2>$null | Out-Null
-$locked = Get-Process -Name LogonUI,LockApp -ErrorAction SilentlyContinue
+$locked = Get-Process -Name LogonUI -ErrorAction SilentlyContinue
 if ($locked) {
   Write-Output "LOCK_CONFIRMED:WINDOWS_LOGONUI"
   exit 0
 }
-Write-Error "Failed to verify Windows session lock (LogonUI/LockApp not detected)."
+Write-Error "Failed to verify Windows session lock (LogonUI not detected)."
 exit 1
 ''',
       HostOs.linux => '''

@@ -530,7 +530,7 @@ Write-Output "MEM_INFO:\$usedMem/\$totMem GB (\$memPct%)"
 Write-Output "DISK_INFO:\${usedDisk}G/\${totDisk}G (\$diskPct%)"
 \$up = (Get-Date) - \$os.LastBootUpTime
 Write-Output "UPTIME:\$([int]\$up.TotalHours) hours, \$(\$up.Minutes) minutes"
-\$locked = Get-Process -Name LogonUI,LockApp -ErrorAction SilentlyContinue
+\$locked = Get-Process -Name LogonUI -ErrorAction SilentlyContinue
 if (\$locked) { Write-Output "SESSION_LOCK:LOCKED" } else { Write-Output "SESSION_LOCK:UNLOCKED" }
 Write-Output "===LAPDECK_PROCESSES==="
 \$cores = [Math]::Max((Get-CimInstance Win32_ComputerSystem).NumberOfLogicalProcessors, 1)
@@ -798,7 +798,7 @@ lapdog status 2>/dev/null || ~/.local/bin/lapdog status 2>/dev/null || echo "LAP
     final String cmd;
     if (host.os == HostOs.windows) {
       cmd = r'''
-$locked = Get-Process -Name LogonUI,LockApp -ErrorAction SilentlyContinue
+$locked = Get-Process -Name LogonUI -ErrorAction SilentlyContinue
 if ($locked) { Write-Output "LOCKED" } else { Write-Output "UNLOCKED" }
 ''';
     } else if (host.os == HostOs.linux) {
@@ -850,22 +850,30 @@ echo "UNLOCKED"
     if (host.os == HostOs.windows) {
       cmd = r'''
 $ErrorActionPreference = 'SilentlyContinue'
-if (Get-Process -Name LogonUI,LockApp -ErrorAction SilentlyContinue) {
+if (Get-Process -Name LogonUI -ErrorAction SilentlyContinue) {
   Write-Output "SCREENGRAB_FAILED"
   exit 0
 }
+$ts = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+$img = "$env:TEMP\lapdeck_screen_$ts.jpg"
+$tmpScript = "$env:TEMP\lapdeck_grab_$ts.ps1"
+$cmdFile = "$env:TEMP\lapdeck_grab_$ts.cmd"
+Remove-Item $img -Force -ErrorAction SilentlyContinue
+
 $code = @'
 $ErrorActionPreference = 'Stop'
 try {
   Add-Type -AssemblyName System.Windows.Forms
   Add-Type -AssemblyName System.Drawing
   $bounds = [System.Windows.Forms.SystemInformation]::VirtualScreen
+  if ($bounds.Width -le 0 -or $bounds.Height -le 0) {
+    $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+  }
   $bmp = New-Object System.Drawing.Bitmap($bounds.Width, $bounds.Height)
   $g = [System.Drawing.Graphics]::FromImage($bmp)
   try {
     $g.CopyFromScreen($bounds.Left, $bounds.Top, 0, 0, $bounds.Size)
-    $tmp = "$env:TEMP\lapdeck_screen.jpg"
-    $bmp.Save($tmp, [System.Drawing.Imaging.ImageFormat]::Jpeg)
+    $bmp.Save('__IMG_PATH__', [System.Drawing.Imaging.ImageFormat]::Jpeg)
   } finally {
     $g.Dispose()
     $bmp.Dispose()
@@ -873,23 +881,21 @@ try {
 } catch {
   exit 1
 }
-'@
-$tmpScript = "$env:TEMP\lapdeck_grab_$([DateTimeOffset]::UtcNow.ToUnixTimeSeconds()).ps1"
+'@.Replace('__IMG_PATH__', $img)
 Set-Content -Path $tmpScript -Value $code -Encoding Ascii
-$img = "$env:TEMP\lapdeck_screen.jpg"
-Remove-Item $img -Force -ErrorAction SilentlyContinue
+$cmdContent = "@powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$tmpScript`""
+Set-Content -Path $cmdFile -Value $cmdContent -Encoding Ascii
 
 # Attempt interactive dispatch via Task Scheduler (/IT) to bridge Session 0 isolation
-$taskName = "LapDeckGrab_$([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())"
-$tr = "powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$tmpScript`""
+$taskName = "LapDeckGrab_$ts"
 $taskCreated = $false
 try {
-  & schtasks.exe /Create /TN $taskName /TR $tr /SC ONCE /ST 00:00 /IT /F 2>$null | Out-Null
+  & schtasks.exe /Create /TN $taskName /TR "`"$cmdFile`"" /SC ONCE /ST 00:00 /IT /F 2>$null | Out-Null
   if ($LASTEXITCODE -eq 0) {
     $taskCreated = $true
     & schtasks.exe /Run /TN $taskName 2>$null | Out-Null
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
-    while (-not (Test-Path $img) -and ($sw.ElapsedMilliseconds -lt 3500)) {
+    while (-not (Test-Path $img) -and ($sw.ElapsedMilliseconds -lt 5000)) {
       Start-Sleep -Milliseconds 150
     }
   }
@@ -901,7 +907,7 @@ if ($taskCreated) {
 # Fallback to direct execution if scheduled task did not produce the image
 if (-not (Test-Path $img)) {
   try {
-    & powershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -File $tmpScript 2>$null
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File $tmpScript 2>$null
   } catch {}
 }
 
@@ -918,6 +924,7 @@ if (Test-Path $img) {
   Write-Output "SCREENGRAB_FAILED"
 }
 Remove-Item $tmpScript -Force -ErrorAction SilentlyContinue
+Remove-Item $cmdFile -Force -ErrorAction SilentlyContinue
 ''';
     } else if (host.os == HostOs.linux) {
       cmd = '''

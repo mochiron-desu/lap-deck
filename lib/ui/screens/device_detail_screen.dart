@@ -1145,9 +1145,18 @@ class _ScreengrabBottomSheetState extends State<_ScreengrabBottomSheet> {
 
       if (!mounted) return;
       if (bytes == null || bytes.isEmpty) {
+        bool isLocked = widget.isLocked == true;
+        if (!isLocked) {
+          final liveLock = await widget.sshService.checkWorkstationLockState(
+            widget.host,
+            secret: secret,
+          );
+          if (liveLock == true) isLocked = true;
+        }
+        if (!mounted) return;
         setState(() {
           _isLoading = false;
-          _error = widget.isLocked == true
+          _error = isLocked
               ? 'Workstation session is locked. Graphical display capture is suppressed by the OS lock screen.'
               : 'Unable to capture remote workstation display. Please verify that a graphical user session (X11/Wayland/Windows Desktop) is running.';
         });
