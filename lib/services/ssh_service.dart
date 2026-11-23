@@ -541,7 +541,13 @@ Get-CimInstance Win32_PerfFormattedData_PerfProc_Process -ErrorAction SilentlyCo
     "\$(\$_.IDProcess) \$(\$_.Name) \$pCpu \$pMem \$(\$_.Name)"
 }
 Write-Output "===LAPDECK_LAPDOG==="
-Write-Output "LAPDOG_NOT_FOUND"
+if (Get-Command lapdog -ErrorAction SilentlyContinue) {
+    lapdog status
+} elseif (Test-Path "\$env:LOCALAPPDATA/lapdog/bin/lapdog.exe") {
+    & "\$env:LOCALAPPDATA/lapdog/bin/lapdog.exe" status
+} else {
+    Write-Output "LAPDOG_NOT_FOUND"
+}
 ''';
     } else {
       script = '''
@@ -733,12 +739,18 @@ lapdog status 2>/dev/null || ~/.local/bin/lapdog status 2>/dev/null || echo "LAP
       sent = int.tryParse(sentMatch.group(1)!) ?? 0;
     }
 
+    String version = isInstalled ? 'v0.1.4' : '';
+    final versionMatch = RegExp(r'Version:\s+([^\s\(\)]+)').firstMatch(output);
+    if (versionMatch != null) {
+      version = versionMatch.group(1)!;
+    }
+
     return LapdogStatus(
       isInstalled: isInstalled,
       isAwayArmed: isAway,
       pendingEvents: pending,
       sentHistory: sent,
-      version: isInstalled ? 'v0.1.4' : '',
+      version: version,
       lastChecked: timestamp,
       isVerified: true,
     );
@@ -770,8 +782,21 @@ lapdog status 2>/dev/null || ~/.local/bin/lapdog status 2>/dev/null || echo "LAP
     HostTarget host, {
     String? secret,
   }) async {
-    const cmd =
-        "lapdog status 2>/dev/null || ~/.local/bin/lapdog status 2>/dev/null || echo 'LAPDOG_NOT_FOUND'";
+    final String cmd;
+    if (host.os == HostOs.windows) {
+      cmd = r'''
+if (Get-Command lapdog -ErrorAction SilentlyContinue) {
+    lapdog status
+} elseif (Test-Path "$env:LOCALAPPDATA\lapdog\bin\lapdog.exe") {
+    & "$env:LOCALAPPDATA\lapdog\bin\lapdog.exe" status
+} else {
+    Write-Output "LAPDOG_NOT_FOUND"
+}
+''';
+    } else {
+      cmd =
+          "lapdog status 2>/dev/null || ~/.local/bin/lapdog status 2>/dev/null || echo 'LAPDOG_NOT_FOUND'";
+    }
     final res = await executeCommand(
       host: host,
       command: cmd,

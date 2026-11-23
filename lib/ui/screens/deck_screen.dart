@@ -122,7 +122,10 @@ class _DeckScreenState extends State<DeckScreen> {
 
     setState(() => _isLapdogToggling = true);
     final secret = await widget.storage.getHostCredential(host.id);
-    final cmd = enableAway ? 'lapdog away 2>/dev/null' : 'lapdog back 2>/dev/null';
+    final modeArg = enableAway ? 'away' : 'back';
+    final cmd = host.os == HostOs.windows
+        ? 'if (Get-Command lapdog -ErrorAction SilentlyContinue) { lapdog $modeArg } elseif (Test-Path "\$env:LOCALAPPDATA\\lapdog\\bin\\lapdog.exe") { & "\$env:LOCALAPPDATA\\lapdog\\bin\\lapdog.exe" $modeArg } else { Write-Error "Lapdog is not installed on Windows."; exit 127 }'
+        : 'lapdog $modeArg 2>/dev/null || ~/.local/bin/lapdog $modeArg 2>/dev/null';
 
     final res = await widget.sshService.executeCommand(
       host: host,

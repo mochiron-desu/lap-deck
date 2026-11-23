@@ -195,7 +195,7 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
     final secret = await widget.storage.getHostCredential(target.id);
     final modeArg = enableAway ? 'away' : 'back';
     final cmd = target.os == HostOs.windows
-        ? 'if (Get-Command lapdog -ErrorAction SilentlyContinue) { lapdog $modeArg } else { Write-Error "Lapdog is not installed on Windows."; exit 127 }'
+        ? 'if (Get-Command lapdog -ErrorAction SilentlyContinue) { lapdog $modeArg } elseif (Test-Path "\$env:LOCALAPPDATA\\lapdog\\bin\\lapdog.exe") { & "\$env:LOCALAPPDATA\\lapdog\\bin\\lapdog.exe" $modeArg } else { Write-Error "Lapdog is not installed on Windows."; exit 127 }'
         : 'lapdog $modeArg 2>/dev/null || ~/.local/bin/lapdog $modeArg 2>/dev/null';
 
     final res = await widget.sshService.executeCommand(

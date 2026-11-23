@@ -112,7 +112,7 @@ class QuickControlsCard extends StatelessWidget {
                       'restart-lapdog',
                       'Restart Lapdog',
                       host?.os == HostOs.windows
-                          ? 'if (Get-Command lapdog -ErrorAction SilentlyContinue) { lapdog restart } else { Write-Error "Lapdog is not installed on Windows."; exit 127 }'
+                          ? 'if (Get-Command lapdog -ErrorAction SilentlyContinue) { Stop-Process -Name lapdog -Force -ErrorAction SilentlyContinue; Start-Process lapdog -ArgumentList "run --config \$HOME\\.lapdog\\config.yaml --background" -WindowStyle Hidden; Write-Output "Lapdog restarted" } elseif (Test-Path "\$env:LOCALAPPDATA\\lapdog\\bin\\lapdog.exe") { Stop-Process -Name lapdog -Force -ErrorAction SilentlyContinue; Start-Process -FilePath "\$env:LOCALAPPDATA\\lapdog\\bin\\lapdog.exe" -ArgumentList "run --config \$HOME\\.lapdog\\config.yaml --background" -WindowStyle Hidden; Write-Output "Lapdog restarted" } else { Write-Error "Lapdog is not installed on Windows."; exit 127 }'
                           : 'systemctl --user restart lapdog 2>/dev/null || lapdog restart 2>/dev/null',
                     ),
                   ),
