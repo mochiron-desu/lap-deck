@@ -1286,8 +1286,12 @@ class _AiChatScreenState extends State<AiChatScreen>
             ? _activeConversationId!.substring(0, 8)
             : _activeConversationId!)
         : 'NEW SESSION';
+    final wsParts = _activeWorkspace
+        .split(RegExp(r'[/\\]'))
+        .where((s) => s.trim().isNotEmpty)
+        .toList();
     final wsBasename = _activeWorkspace.isNotEmpty
-        ? _activeWorkspace.split(RegExp(r'[/\\]')).last
+        ? (wsParts.isNotEmpty ? wsParts.last : _activeWorkspace)
         : 'Default Workspace';
 
     return Container(
@@ -1725,7 +1729,7 @@ class _AiChatScreenState extends State<AiChatScreen>
                 ),
                 const SizedBox(height: 4),
                 MarkdownBody(
-                  data: turn.prompt,
+                  data: _normalizeMarkdownText(turn.prompt),
                   selectable: true,
                   extensionSet: md.ExtensionSet.gitHubFlavored,
                   styleSheet: _buildOperatorMarkdownStyle(context),
@@ -2037,20 +2041,19 @@ class _AiChatScreenState extends State<AiChatScreen>
               const SizedBox(height: 10),
               if (turn.response.isNotEmpty)
                 MarkdownBody(
-                  data: turn.response,
+                  data: _normalizeMarkdownText(turn.response),
                   selectable: true,
                   extensionSet: md.ExtensionSet.gitHubFlavored,
                   styleSheet: _buildAgentMarkdownStyle(context),
                   syntaxHighlighter: _DeckSyntaxHighlighter(),
+                  builders: {
+                    'pre': _CodeBlockMarkdownBuilder(
+                      onCopyCode: (code) => _copyText(code, 'Code block'),
+                    ),
+                  },
                   onTapLink: (text, href, title) {
                     if (href != null && href.isNotEmpty) {
-                      Clipboard.setData(ClipboardData(text: href));
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text('Link copied to clipboard: $href'),
-                          duration: const Duration(seconds: 2),
-                        ),
-                      );
+                      _copyText(href, 'Link ($href)');
                     }
                   },
                 )
@@ -2226,6 +2229,24 @@ class _AiChatScreenState extends State<AiChatScreen>
     );
   }
 
+  String _normalizeMarkdownText(String input) {
+    if (!input.contains(r'$')) return input;
+    return input
+        .replaceAll(r'$\rightarrow$', '→')
+        .replaceAll(r'$\to$', '→')
+        .replaceAll(r'$\leftarrow$', '←')
+        .replaceAll(r'$\leftrightarrow$', '↔')
+        .replaceAll(r'$\Rightarrow$', '⇒')
+        .replaceAll(r'$\times$', '×')
+        .replaceAll(r'$\ge$', '≥')
+        .replaceAll(r'$\geq$', '≥')
+        .replaceAll(r'$\le$', '≤')
+        .replaceAll(r'$\leq$', '≤')
+        .replaceAll(r'$\neq$', '≠')
+        .replaceAll(r'$\approx$', '≈')
+        .replaceAll(r'$\cdot$', '·');
+  }
+
   MarkdownStyleSheet _buildAgentMarkdownStyle(BuildContext context) {
     return MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
       p: const TextStyle(
@@ -2377,6 +2398,105 @@ class _DeckSyntaxHighlighter extends SyntaxHighlighter {
         height: 1.4,
       ),
       text: code,
+    );
+  }
+}
+
+class _CodeBlockMarkdownBuilder extends MarkdownElementBuilder {
+  final void Function(String code) onCopyCode;
+
+  _CodeBlockMarkdownBuilder({required this.onCopyCode});
+
+  @override
+  Widget? visitElementAfter(md.Element element, TextStyle? preferredStyle) {
+    final codeText = element.textContent.trimRight();
+    String lang = 'code';
+    if (element.children != null && element.children!.isNotEmpty) {
+      final firstChild = element.children!.first;
+      if (firstChild is md.Element && firstChild.tag == 'code') {
+        final cls = firstChild.attributes['class'] ?? '';
+        if (cls.startsWith('language-')) {
+          lang = cls.substring('language-'.length).trim();
+        }
+      }
+    }
+
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      decoration: BoxDecoration(
+        color: DeckColors.background,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: DeckColors.borderSubtle),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            decoration: const BoxDecoration(
+              color: DeckColors.surfaceElevated,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(7)),
+              border: Border(
+                bottom: BorderSide(color: DeckColors.borderSubtle, width: 1),
+              ),
+            ),
+            child: Row(
+              children: [
+                Text(
+                  lang.toUpperCase(),
+                  style: GoogleFonts.jetBrainsMono(
+                    fontSize: 9.5,
+                    fontWeight: FontWeight.w700,
+                    color: DeckColors.mutedText,
+                  ),
+                ),
+                const Spacer(),
+                InkWell(
+                  borderRadius: BorderRadius.circular(4),
+                  onTap: () => onCopyCode(codeText),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 4,
+                      vertical: 2,
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.copy_rounded,
+                          size: 11,
+                          color: DeckColors.primaryAccent,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          'Copy',
+                          style: GoogleFonts.jetBrainsMono(
+                            fontSize: 9.5,
+                            fontWeight: FontWeight.w700,
+                            color: DeckColors.primaryAccent,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            child: SelectableText(
+              codeText,
+              style: GoogleFonts.jetBrainsMono(
+                fontSize: 11.5,
+                color: DeckColors.terminalText,
+                height: 1.4,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

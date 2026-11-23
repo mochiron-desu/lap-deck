@@ -1174,7 +1174,7 @@ class _ConnectorTabState extends State<ConnectorTab> {
       onTap: onTap,
       borderRadius: BorderRadius.circular(20),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
         decoration: BoxDecoration(
           color: isSelected
               ? DeckColors.surfaceHighlight
@@ -1191,16 +1191,16 @@ class _ConnectorTabState extends State<ConnectorTab> {
           children: [
             Icon(
               icon,
-              size: 15,
+              size: 14,
               color: isSelected
                   ? DeckColors.primaryAccent
                   : DeckColors.secondaryText,
             ),
-            const SizedBox(width: 6),
+            const SizedBox(width: 5),
             Text(
               label,
               style: TextStyle(
-                fontSize: 12,
+                fontSize: 11.5,
                 fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
                 color: isSelected
                     ? DeckColors.primaryText
@@ -1606,12 +1606,20 @@ class _ConnectorTabState extends State<ConnectorTab> {
                       icon: Icons.hub_outlined,
                       label:
                           'TS: ${peerState.tailscaleIp}:${ConnectorService.defaultPort}',
+                      onTap: () => _copyToClipboard(
+                        '${peerState.tailscaleIp}:${ConnectorService.defaultPort}',
+                        'Tailscale endpoint (${peerState.tailscaleIp}:${ConnectorService.defaultPort})',
+                      ),
                     ),
                     if (peerState.lanIp.isNotEmpty &&
                         peerState.lanIp != 'N/A')
                       _buildEndpointChip(
                         icon: Icons.lan_outlined,
                         label: 'LAN: ${peerState.lanIp}',
+                        onTap: () => _copyToClipboard(
+                          peerState.lanIp,
+                          'LAN IP (${peerState.lanIp})',
+                        ),
                       ),
                     if (isOnline &&
                         health?.workspace != null &&
@@ -1621,6 +1629,7 @@ class _ConnectorTabState extends State<ConnectorTab> {
                         label:
                             'Target: ${_formatWorkspaceShort(health.workspace!)}',
                         accentColor: DeckColors.informational,
+                        onTap: () => _openChangeTargetSheet(peerState),
                       ),
                     if (isOnline &&
                         health?.activeNode?.toLowerCase() ==
@@ -1629,6 +1638,7 @@ class _ConnectorTabState extends State<ConnectorTab> {
                         icon: Icons.track_changes,
                         label: 'AI Target: ${peerState.nodeOsKey.toUpperCase()}',
                         accentColor: DeckColors.primaryAccent,
+                        onTap: () => _openChangeTargetSheet(peerState),
                       ),
                   ],
                 ),
@@ -2148,34 +2158,39 @@ class _ConnectorTabState extends State<ConnectorTab> {
     required IconData icon,
     required String label,
     Color? accentColor,
+    VoidCallback? onTap,
   }) {
     final c = accentColor ?? DeckColors.secondaryText;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: DeckColors.surfaceElevated,
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(
-          color: accentColor != null
-              ? accentColor.withValues(alpha: 0.35)
-              : DeckColors.borderSubtle,
+    return InkWell(
+      borderRadius: BorderRadius.circular(6),
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: DeckColors.surfaceElevated,
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(
+            color: accentColor != null
+                ? accentColor.withValues(alpha: 0.35)
+                : DeckColors.borderSubtle,
+          ),
         ),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 12, color: c),
-          const SizedBox(width: 5),
-          Flexible(
-            child: Text(
-              label,
-              style: GoogleFonts.jetBrainsMono(
-                fontSize: 11,
-                color: accentColor != null ? c : DeckColors.primaryText,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 12, color: c),
+            const SizedBox(width: 5),
+            Flexible(
+              child: Text(
+                label,
+                style: GoogleFonts.jetBrainsMono(
+                  fontSize: 11,
+                  color: accentColor != null ? c : DeckColors.primaryText,
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

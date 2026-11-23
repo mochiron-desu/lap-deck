@@ -484,16 +484,46 @@ class _SettingsTabState extends State<SettingsTab> {
                           ),
                         ],
                       ),
-                      OutlinedButton.icon(
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: DeckColors.primaryAccent,
-                          side: const BorderSide(
-                            color: DeckColors.primaryAccent,
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (_connectorToken.isNotEmpty)
+                            IconButton(
+                              tooltip: 'Copy Connector Token',
+                              icon: const Icon(
+                                Icons.copy_rounded,
+                                size: 16,
+                                color: DeckColors.secondaryText,
+                              ),
+                              onPressed: () {
+                                HapticFeedback.lightImpact();
+                                Clipboard.setData(
+                                  ClipboardData(text: _connectorToken),
+                                );
+                                ScaffoldMessenger.of(context)
+                                  ..hideCurrentSnackBar()
+                                  ..showSnackBar(
+                                    const SnackBar(
+                                      content: Text(
+                                        'Connector PEER_SECRET copied to clipboard',
+                                      ),
+                                      duration: Duration(milliseconds: 1400),
+                                    ),
+                                  );
+                              },
+                            ),
+                          OutlinedButton.icon(
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: DeckColors.primaryAccent,
+                              side: const BorderSide(
+                                color: DeckColors.primaryAccent,
+                              ),
+                            ),
+                            onPressed: _editConnectorTokenDialog,
+                            icon: const Icon(Icons.edit, size: 14),
+                            label: const Text('Edit'),
                           ),
-                        ),
-                        onPressed: _editConnectorTokenDialog,
-                        icon: const Icon(Icons.edit, size: 14),
-                        label: const Text('Edit'),
+                        ],
                       ),
                     ],
                   ),
@@ -728,17 +758,41 @@ class _SettingsTabState extends State<SettingsTab> {
                       style:
                           TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
                     ),
-                    trailing: Text(
-                      widget.storage.getInstalledCommitSha().length > 7
-                          ? widget.storage
-                              .getInstalledCommitSha()
-                              .substring(0, 7)
-                          : widget.storage.getInstalledCommitSha(),
-                      style: GoogleFonts.jetBrainsMono(
-                        fontSize: 12,
-                        color: DeckColors.primaryAccent,
-                        fontWeight: FontWeight.w600,
-                      ),
+                    onTap: () {
+                      final fullSha = widget.storage.getInstalledCommitSha();
+                      HapticFeedback.lightImpact();
+                      Clipboard.setData(ClipboardData(text: fullSha));
+                      ScaffoldMessenger.of(context)
+                        ..hideCurrentSnackBar()
+                        ..showSnackBar(
+                          SnackBar(
+                            content: Text('Copied commit SHA: $fullSha'),
+                            duration: const Duration(milliseconds: 1400),
+                          ),
+                        );
+                    },
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          widget.storage.getInstalledCommitSha().length > 7
+                              ? widget.storage
+                                  .getInstalledCommitSha()
+                                  .substring(0, 7)
+                              : widget.storage.getInstalledCommitSha(),
+                          style: GoogleFonts.jetBrainsMono(
+                            fontSize: 12,
+                            color: DeckColors.primaryAccent,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        const Icon(
+                          Icons.copy_rounded,
+                          size: 13,
+                          color: DeckColors.mutedText,
+                        ),
+                      ],
                     ),
                   ),
                   const Divider(color: DeckColors.borderSubtle, height: 1),

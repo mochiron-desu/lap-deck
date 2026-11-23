@@ -1,9 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../../theme/deck_theme.dart';
 import '../../models/host_target.dart';
+import '../../services/connector_service.dart';
+import '../../services/notification_service.dart';
 import '../../services/ssh_service.dart';
 import '../../services/storage_service.dart';
 import '../../services/terminal_session_controller.dart';
+import 'ai_chat_screen.dart';
 import 'device_detail_screen.dart';
 import 'host_config_dialog.dart';
 import 'remote_file_explorer_screen.dart';
@@ -15,9 +20,12 @@ class DevicesTab extends StatefulWidget {
   final StorageService storage;
   final SshService sshService;
   final TerminalSessionController terminalController;
+  final ConnectorService? connectorService;
+  final NotificationService? notificationService;
   final Function(HostTarget) onSelectHost;
   final VoidCallback onHostsUpdated;
   final VoidCallback onRefresh;
+  final Function(String hostId, TelemetryBundle bundle)? onTelemetryUpdated;
   final bool isRefreshing;
 
   const DevicesTab({
@@ -27,9 +35,12 @@ class DevicesTab extends StatefulWidget {
     required this.storage,
     required this.sshService,
     required this.terminalController,
+    this.connectorService,
+    this.notificationService,
     required this.onSelectHost,
     required this.onHostsUpdated,
     required this.onRefresh,
+    this.onTelemetryUpdated,
     this.isRefreshing = false,
   });
 
@@ -70,10 +81,14 @@ class _DevicesTabState extends State<DevicesTab> {
       MaterialPageRoute(
         builder: (_) => DeviceDetailScreen(
           host: host,
+          isGlobalTarget: isSelected,
           storage: widget.storage,
           sshService: widget.sshService,
           terminalController: widget.terminalController,
           onUpdated: widget.onHostsUpdated,
+          onSelectAsTarget: () => widget.onSelectHost(host),
+          onTelemetryUpdated: (bundle) =>
+              widget.onTelemetryUpdated?.call(host.id, bundle),
         ),
       ),
     );
@@ -426,6 +441,58 @@ class _DevicesTabState extends State<DevicesTab> {
                         host.agentStatusLabel,
                         _serviceColor(host.agentStatus),
                       ),
+                      InkWell(
+                        borderRadius: BorderRadius.circular(6),
+                        onTap: () {
+                          HapticFeedback.lightImpact();
+                          Clipboard.setData(
+                            ClipboardData(text: host.tailscaleIp),
+                          );
+                          ScaffoldMessenger.of(context)
+                            ..hideCurrentSnackBar()
+                            ..showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  'Copied ${host.name} IP (${host.tailscaleIp})',
+                                ),
+                                duration: const Duration(milliseconds: 1400),
+                              ),
+                            );
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 3,
+                          ),
+                          decoration: BoxDecoration(
+                            color: DeckColors.background,
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(
+                              color: DeckColors.borderSubtle,
+                              width: 1,
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                host.tailscaleIp,
+                                style: GoogleFonts.jetBrainsMono(
+                                  fontSize: 10,
+                                  color: DeckColors.secondaryText,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              const Icon(
+                                Icons.copy_rounded,
+                                size: 10,
+                                color: DeckColors.mutedText,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
                     ],
                   ),
                 ],
@@ -433,9 +500,9 @@ class _DevicesTabState extends State<DevicesTab> {
             ),
           ),
           const Divider(color: DeckColors.borderSubtle, height: 1),
-          // Action bar: Select as Global Target vs Inspect Device Details
+          // Action bar: Select as Global Target vs Quick tools vs Inspect Device Details
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
             child: Row(
               children: [
                 Expanded(
@@ -463,7 +530,7 @@ class _DevicesTabState extends State<DevicesTab> {
                           : DeckColors.secondaryText,
                     ),
                     label: Text(
-                      isSelected ? 'Selected target' : 'Set as target',
+                      isSelected ? 'Selected' : 'Set target',
                       style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w600,
@@ -484,6 +551,27 @@ class _DevicesTabState extends State<DevicesTab> {
                   color: DeckColors.borderSubtle,
                 ),
                 IconButton(
+                  constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+                  icon: const Icon(Icons.smart_toy_outlined, size: 18),
+                  color: DeckColors.primaryAccent,
+                  tooltip: 'AI Console on ${host.name}',
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => AiChatScreen(
+                          initialHost: host,
+                          availableHosts: widget.hosts,
+                          storage: widget.storage,
+                          connectorService:
+                              widget.connectorService ?? ConnectorService(),
+                          notificationService: widget.notificationService,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+                IconButton(
+                  constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
                   icon: const Icon(Icons.folder_open, size: 18),
                   color: DeckColors.secondaryText,
                   tooltip: 'Remote Files on ${host.name}',
@@ -499,12 +587,8 @@ class _DevicesTabState extends State<DevicesTab> {
                     );
                   },
                 ),
-                Container(
-                  width: 1,
-                  height: 24,
-                  color: DeckColors.borderSubtle,
-                ),
                 IconButton(
+                  constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
                   icon: const Icon(Icons.terminal, size: 18),
                   color: DeckColors.secondaryText,
                   tooltip: 'Open Terminal on ${host.name}',
@@ -536,7 +620,7 @@ class _DevicesTabState extends State<DevicesTab> {
                       color: DeckColors.primaryAccent,
                     ),
                     label: const Text(
-                      'Device details',
+                      'Details',
                       style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w600,

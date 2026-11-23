@@ -82,8 +82,8 @@ class QuickControlsCard extends StatelessWidget {
                   child: _buildControlButton(
                     context,
                     icon: Icons.lock_outline,
-                    label: lockTitle,
-                    subtitle: 'Lock $targetName',
+                    label: 'Lock Session',
+                    subtitle: 'Lock desktop session',
                     color: DeckColors.primaryAccent,
                     onTap: () => _confirmAction(
                       context,
@@ -106,7 +106,7 @@ class QuickControlsCard extends StatelessWidget {
                     context,
                     icon: Icons.restart_alt,
                     label: 'Restart Lapdog',
-                    subtitle: 'Reset daemon on $targetName',
+                    subtitle: 'Reset security daemon',
                     color: DeckColors.warning,
                     onTap: () => onTrigger(
                       'restart-lapdog',
@@ -130,7 +130,7 @@ class QuickControlsCard extends StatelessWidget {
                     context,
                     icon: Icons.sync,
                     label: 'Sync Skills',
-                    subtitle: 'Sync mesh on $targetName',
+                    subtitle: 'Sync Antigravity mesh',
                     color: DeckColors.informational,
                     onTap: () => onTrigger(
                       'sync-skills',
@@ -147,7 +147,7 @@ class QuickControlsCard extends StatelessWidget {
                     context,
                     icon: Icons.power_settings_new,
                     label: 'Sleep Device',
-                    subtitle: 'Suspend $targetName',
+                    subtitle: 'Suspend to system sleep',
                     color: DeckColors.error,
                     onTap: () => _confirmAction(
                       context,

@@ -2093,7 +2093,7 @@ fi
               Expanded(
                 child: _buildContextActionCard(
                   icon: Icons.lock_outline,
-                  title: active?.lockActionTitle ?? 'Lock Session',
+                  title: 'Lock Session',
                   targetSubtitle: 'Lock $targetName',
                   stateHint: lockStateHint,
                   accentColor: isLocked == true ? DeckColors.healthy : DeckColors.primaryAccent,

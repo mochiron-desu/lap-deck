@@ -600,6 +600,11 @@ class _RemoteFileExplorerScreenState extends State<RemoteFileExplorerScreen> {
         ),
         actions: [
           IconButton(
+            tooltip: 'Refresh directory',
+            icon: const Icon(Icons.refresh, color: DeckColors.secondaryText),
+            onPressed: _isLoading ? null : () => _loadDirectory(_currentPath),
+          ),
+          IconButton(
             tooltip: _showHidden ? 'Hide dotfiles' : 'Show dotfiles',
             icon: Icon(
               _showHidden ? Icons.visibility : Icons.visibility_off,
@@ -694,21 +699,59 @@ class _RemoteFileExplorerScreenState extends State<RemoteFileExplorerScreen> {
                   ),
                   const SizedBox(width: 8),
                   Expanded(
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                      decoration: BoxDecoration(
-                        color: DeckColors.background,
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(color: DeckColors.borderSubtle, width: 1),
-                      ),
-                      child: Text(
-                        _canonicalPath.isNotEmpty ? _canonicalPath : _currentPath,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: GoogleFonts.jetBrainsMono(
-                          fontSize: 12,
-                          color: DeckColors.primaryText,
-                          fontWeight: FontWeight.w500,
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(6),
+                      onTap: () {
+                        final pathToCopy = _canonicalPath.isNotEmpty
+                            ? _canonicalPath
+                            : _currentPath;
+                        HapticFeedback.lightImpact();
+                        Clipboard.setData(ClipboardData(text: pathToCopy));
+                        ScaffoldMessenger.of(context)
+                          ..hideCurrentSnackBar()
+                          ..showSnackBar(
+                            SnackBar(
+                              content: Text('Copied path: $pathToCopy'),
+                              duration: const Duration(milliseconds: 1400),
+                            ),
+                          );
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: DeckColors.background,
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(
+                            color: DeckColors.borderSubtle,
+                            width: 1,
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                _canonicalPath.isNotEmpty
+                                    ? _canonicalPath
+                                    : _currentPath,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: GoogleFonts.jetBrainsMono(
+                                  fontSize: 12,
+                                  color: DeckColors.primaryText,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            const Icon(
+                              Icons.copy_rounded,
+                              size: 12,
+                              color: DeckColors.mutedText,
+                            ),
+                          ],
                         ),
                       ),
                     ),

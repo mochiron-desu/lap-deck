@@ -124,7 +124,6 @@ class _AppScaffoldState extends State<AppScaffold> with WidgetsBindingObserver {
   Future<void> _refreshNetworkState({String? explicitTargetId}) async {
     if (_hosts.isEmpty) return;
 
-    final targetIdToInspect = explicitTargetId ?? _activeHost?.id;
     final snapshotHosts = List<HostTarget>.from(_hosts);
 
     if (mounted) {
@@ -191,31 +190,40 @@ class _AppScaffoldState extends State<AppScaffold> with WidgetsBindingObserver {
         });
       }
 
-      // 2. Fetch telemetry bundle for the inspected target host if its SSH port is reachable
-      if (targetIdToInspect != null) {
-        HostTarget? targetHost;
-        for (final h in _hosts) {
-          if (h.id == targetIdToInspect) {
-            targetHost = h;
-            break;
-          }
+      // 2. Fetch telemetry bundles for online SSH-available hosts (all online peers on full refresh, or explicitTargetId)
+      final hostsToFetchTelemetry = _hosts.where((h) {
+        if (h.peerStatus != PeerStatus.online ||
+            h.sshStatus != ServiceStatus.available) {
+          return false;
         }
+        if (explicitTargetId != null) {
+          return h.id == explicitTargetId || !_telemetryByHost.containsKey(h.id);
+        }
+        return true;
+      }).toList();
 
-        if (targetHost != null &&
-            targetHost.peerStatus == PeerStatus.online &&
-            targetHost.sshStatus == ServiceStatus.available) {
-          final secret = await widget.storage.getHostCredential(targetHost.id);
-          final bundle = await widget.sshService.fetchTelemetryBundle(
-            targetHost,
-            secret: secret,
-          );
+      if (hostsToFetchTelemetry.isNotEmpty) {
+        final bundleResults = await Future.wait(
+          hostsToFetchTelemetry.map((targetHost) async {
+            final secret =
+                await widget.storage.getHostCredential(targetHost.id);
+            final bundle = await widget.sshService.fetchTelemetryBundle(
+              targetHost,
+              secret: secret,
+            );
+            return (host: targetHost, bundle: bundle);
+          }),
+        );
 
-          if (mounted) {
-            setState(() {
+        if (mounted) {
+          setState(() {
+            for (final item in bundleResults) {
+              final targetHost = item.host;
+              final bundle = item.bundle;
               if (bundle != null) {
-                _telemetryByHost[targetHost!.id] = bundle;
+                _telemetryByHost[targetHost.id] = bundle;
                 _hosts = _hosts.map((h) {
-                  if (h.id != targetHost!.id) return h;
+                  if (h.id != targetHost.id) return h;
                   return h.copyWith(
                     sshStatus: ServiceStatus.available,
                     agentStatus: ServiceStatus.available,
@@ -227,10 +235,8 @@ class _AppScaffoldState extends State<AppScaffold> with WidgetsBindingObserver {
                   );
                 }).toList();
               } else {
-                // TCP port opened, but SSH auth or command execution failed.
-                // Peer remains online; only SSH/Agent subsystem is marked unavailable.
                 _hosts = _hosts.map((h) {
-                  if (h.id != targetHost!.id) return h;
+                  if (h.id != targetHost.id) return h;
                   return h.copyWith(
                     sshStatus: ServiceStatus.unavailable,
                     agentStatus: ServiceStatus.unavailable,
@@ -240,8 +246,8 @@ class _AppScaffoldState extends State<AppScaffold> with WidgetsBindingObserver {
                   );
                 }).toList();
               }
-            });
-          }
+            }
+          });
         }
       }
 
@@ -384,9 +390,12 @@ class _AppScaffoldState extends State<AppScaffold> with WidgetsBindingObserver {
               storage: widget.storage,
               sshService: widget.sshService,
               terminalController: widget.terminalController,
+              connectorService: widget.connectorService,
+              notificationService: widget.notificationService,
               onSelectHost: _handleSelectHost,
               onHostsUpdated: _reloadHosts,
               onRefresh: () => _refreshNetworkState(),
+              onTelemetryUpdated: _handleUpdateHostTelemetry,
               isRefreshing: _isRefreshing,
             ),
             // Tab 2: Connector

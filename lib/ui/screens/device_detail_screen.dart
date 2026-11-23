@@ -1,6 +1,6 @@
 import 'dart:io';
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
@@ -1039,15 +1039,25 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
           ),
           const Divider(color: DeckColors.borderSubtle, height: 24),
           // Secondary Technical Identifiers
-          _buildDetailRow('Tailscale Mesh IP', _currentHost.tailscaleIp),
+          _buildDetailRow(
+            'Tailscale Mesh IP',
+            _currentHost.tailscaleIp,
+            copyValue: _currentHost.tailscaleIp,
+          ),
           if (_currentHost.directIp != null) ...[
             const SizedBox(height: 8),
-            _buildDetailRow('Local LAN Route', _currentHost.directIp!),
+            _buildDetailRow(
+              'Local LAN Route',
+              _currentHost.directIp!,
+              copyValue: _currentHost.directIp!,
+            ),
           ],
           const SizedBox(height: 8),
           _buildDetailRow(
             'SSH User & Port',
             '${_currentHost.username} (Port ${_currentHost.port})',
+            copyValue:
+                'ssh -p ${_currentHost.port} ${_currentHost.username}@${_currentHost.tailscaleIp}',
           ),
           const SizedBox(height: 8),
           _buildDetailRow(
@@ -1079,7 +1089,12 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
     };
   }
 
-  Widget _buildDetailRow(String label, String value, {Color? valueColor}) {
+  Widget _buildDetailRow(
+    String label,
+    String value, {
+    Color? valueColor,
+    String? copyValue,
+  }) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
@@ -1089,12 +1104,45 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
                 color: DeckColors.secondaryText,
               ),
         ),
-        Text(
-          value,
-          style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                fontWeight: FontWeight.w600,
-                color: valueColor ?? DeckColors.primaryText,
-              ),
+        InkWell(
+          borderRadius: BorderRadius.circular(4),
+          onTap: copyValue == null
+              ? null
+              : () {
+                  HapticFeedback.lightImpact();
+                  Clipboard.setData(ClipboardData(text: copyValue));
+                  ScaffoldMessenger.of(context)
+                    ..hideCurrentSnackBar()
+                    ..showSnackBar(
+                      SnackBar(
+                        content: Text('Copied $label ($copyValue)'),
+                        duration: const Duration(milliseconds: 1400),
+                      ),
+                    );
+                },
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 2),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  value,
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                        color: valueColor ?? DeckColors.primaryText,
+                      ),
+                ),
+                if (copyValue != null) ...[
+                  const SizedBox(width: 5),
+                  const Icon(
+                    Icons.copy_rounded,
+                    size: 11,
+                    color: DeckColors.mutedText,
+                  ),
+                ],
+              ],
+            ),
+          ),
         ),
       ],
     );

@@ -110,7 +110,11 @@ class VitalsCard extends StatelessWidget {
             label: 'Root Storage',
             detail: vitals.diskUsage,
             percent: vitals.diskPercent,
-            barColor: DeckColors.informational,
+            barColor: vitals.diskPercent > 0.90
+                ? DeckColors.error
+                : (vitals.diskPercent > 0.80
+                    ? DeckColors.warning
+                    : DeckColors.informational),
           ),
           const Divider(color: DeckColors.borderSubtle, height: 24),
 
