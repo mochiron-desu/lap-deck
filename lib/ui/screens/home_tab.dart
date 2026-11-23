@@ -9,7 +9,7 @@ import '../../services/notification_service.dart';
 import '../../services/ssh_service.dart';
 import '../../services/storage_service.dart';
 import '../../services/terminal_session_controller.dart';
-import 'ai_chat_screen.dart';
+import 'connector_tab.dart';
 import 'device_detail_screen.dart';
 import 'host_config_dialog.dart';
 import 'terminal_tab.dart';
@@ -30,7 +30,8 @@ class HomeTab extends StatefulWidget {
   final OtaUpdateInfo? otaUpdateInfo;
   final Function(HostTarget) onSelectHost;
   final VoidCallback onRefresh;
-  final Function(int tabIndex) onNavigateTab;
+  final void Function(int tabIndex, {ConnectorSubSection? connectorSection})
+      onNavigateTab;
   final VoidCallback onHostsUpdated;
   final Function(String hostId, TelemetryBundle bundle) onTelemetryUpdated;
 
@@ -1347,17 +1348,9 @@ fi
               ),
               tooltip: 'Open AI Console (${widget.activeHost!.name})',
               onPressed: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => AiChatScreen(
-                      initialHost: widget.activeHost!,
-                      availableHosts: widget.hosts,
-                      storage: widget.storage,
-                      connectorService:
-                          widget.connectorService ?? ConnectorService(),
-                      notificationService: widget.notificationService,
-                    ),
-                  ),
+                widget.onNavigateTab(
+                  2,
+                  connectorSection: ConnectorSubSection.aiConsole,
                 );
               },
             ),

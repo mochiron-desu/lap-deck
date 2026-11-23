@@ -47,6 +47,7 @@ class AppScaffold extends StatefulWidget {
 
 class _AppScaffoldState extends State<AppScaffold> with WidgetsBindingObserver {
   int _currentTabIndex = 0;
+  ConnectorSubSection? _requestedConnectorSection;
   late List<HostTarget> _hosts;
   String? _selectedHostId;
 
@@ -367,8 +368,12 @@ class _AppScaffoldState extends State<AppScaffold> with WidgetsBindingObserver {
                 _refreshNetworkState();
                 _checkOtaUpdatesInBackground();
               },
-              onNavigateTab: (index) =>
-                  setState(() => _currentTabIndex = index),
+              onNavigateTab: (index, {connectorSection}) => setState(() {
+                _currentTabIndex = index;
+                if (connectorSection != null) {
+                  _requestedConnectorSection = connectorSection;
+                }
+              }),
               onHostsUpdated: _reloadHosts,
               onTelemetryUpdated: _handleUpdateHostTelemetry,
             ),
@@ -393,6 +398,7 @@ class _AppScaffoldState extends State<AppScaffold> with WidgetsBindingObserver {
               sshService: widget.sshService,
               notificationService: widget.notificationService,
               onSelectHost: _handleSelectHost,
+              requestedSubSection: _requestedConnectorSection,
             ),
             // Tab 3: Settings
             SettingsTab(

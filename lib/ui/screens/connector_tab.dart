@@ -31,6 +31,7 @@ class ConnectorTab extends StatefulWidget {
   final SshService? sshService;
   final NotificationService? notificationService;
   final Function(HostTarget) onSelectHost;
+  final ConnectorSubSection? requestedSubSection;
 
   const ConnectorTab({
     super.key,
@@ -41,6 +42,7 @@ class ConnectorTab extends StatefulWidget {
     this.sshService,
     this.notificationService,
     required this.onSelectHost,
+    this.requestedSubSection,
   });
 
   @override
@@ -80,6 +82,9 @@ class _ConnectorTabState extends State<ConnectorTab> {
   @override
   void initState() {
     super.initState();
+    if (widget.requestedSubSection != null) {
+      _activeSection = widget.requestedSubSection!;
+    }
     _initPeerPlaceholders();
     _refreshCurrentView();
     _pollTimer = Timer.periodic(const Duration(seconds: 15), (_) {
@@ -95,6 +100,10 @@ class _ConnectorTabState extends State<ConnectorTab> {
   @override
   void didUpdateWidget(covariant ConnectorTab oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (widget.requestedSubSection != null &&
+        widget.requestedSubSection != oldWidget.requestedSubSection) {
+      setState(() => _activeSection = widget.requestedSubSection!);
+    }
     if (oldWidget.hosts.length != widget.hosts.length) {
       _refreshPeersDashboard(silent: true);
     }
@@ -1971,6 +1980,8 @@ class _ConnectorTabState extends State<ConnectorTab> {
                       'Workspace',
                       health.workspace ?? 'Default',
                       isMono: true,
+                      copyable: health.workspace != null &&
+                          health.workspace!.isNotEmpty,
                     ),
                     _buildMetadataRow(
                       'Active Model',
@@ -1981,6 +1992,8 @@ class _ConnectorTabState extends State<ConnectorTab> {
                       'Session ID',
                       health.conversationId ?? 'None',
                       isMono: true,
+                      copyable: health.conversationId != null &&
+                          health.conversationId!.isNotEmpty,
                     ),
                     _buildMetadataRow(
                       'Git Branch',
@@ -1991,11 +2004,14 @@ class _ConnectorTabState extends State<ConnectorTab> {
                       'Tailscale IP',
                       peerState.tailscaleIp,
                       isMono: true,
+                      copyable: peerState.tailscaleIp.isNotEmpty,
                     ),
                     _buildMetadataRow(
                       'LAN IP',
                       peerState.lanIp,
                       isMono: true,
+                      copyable: peerState.lanIp.isNotEmpty &&
+                          peerState.lanIp != 'N/A',
                     ),
                     const SizedBox(height: 10),
                     Row(
@@ -2242,11 +2258,31 @@ class _ConnectorTabState extends State<ConnectorTab> {
     );
   }
 
-  Widget _buildMetadataRow(String label, String value, {bool isMono = false}) {
+  void _copyToClipboard(String value, String label) {
+    if (value.isEmpty) return;
+    HapticFeedback.lightImpact();
+    Clipboard.setData(ClipboardData(text: value));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text('$label copied to clipboard'),
+          duration: const Duration(milliseconds: 1400),
+        ),
+      );
+  }
+
+  Widget _buildMetadataRow(
+    String label,
+    String value, {
+    bool isMono = false,
+    bool copyable = false,
+  }) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 3),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           SizedBox(
             width: 95,
@@ -2273,6 +2309,24 @@ class _ConnectorTabState extends State<ConnectorTab> {
                     ),
             ),
           ),
+          if (copyable) ...[
+            const SizedBox(width: 6),
+            Tooltip(
+              message: 'Copy $label',
+              child: InkWell(
+                borderRadius: BorderRadius.circular(4),
+                onTap: () => _copyToClipboard(value, '$label ($value)'),
+                child: const Padding(
+                  padding: EdgeInsets.all(4),
+                  child: Icon(
+                    Icons.copy_rounded,
+                    size: 13,
+                    color: DeckColors.primaryAccent,
+                  ),
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -2775,6 +2829,48 @@ class _ConnectorTabState extends State<ConnectorTab> {
                         style: GoogleFonts.jetBrainsMono(
                           fontSize: 9,
                           color: DeckColors.secondaryText,
+                        ),
+                      ),
+                    ),
+                  ],
+                  if (err.sessionId != null && err.sessionId!.isNotEmpty) ...[
+                    const SizedBox(width: 6),
+                    InkWell(
+                      borderRadius: BorderRadius.circular(4),
+                      onTap: () => _copyToClipboard(
+                        err.sessionId!,
+                        'Conversation ID (${err.sessionId})',
+                      ),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color:
+                              DeckColors.primaryAccent.withValues(alpha: 0.14),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              err.sessionId!.length > 8
+                                  ? err.sessionId!.substring(0, 8)
+                                  : err.sessionId!,
+                              style: GoogleFonts.jetBrainsMono(
+                                fontSize: 9,
+                                fontWeight: FontWeight.w700,
+                                color: DeckColors.primaryAccent,
+                              ),
+                            ),
+                            const SizedBox(width: 3),
+                            const Icon(
+                              Icons.copy_rounded,
+                              size: 9,
+                              color: DeckColors.primaryAccent,
+                            ),
+                          ],
                         ),
                       ),
                     ),

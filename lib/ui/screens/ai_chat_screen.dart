@@ -49,6 +49,8 @@ class _AiChatScreenState extends State<AiChatScreen>
 
   bool _isLoadingHistory = true;
   bool _isStreaming = false;
+  bool _copiedConvId = false;
+  bool _showScrollToBottom = false;
   String? _errorBanner;
   final Set<int> _expandedThinkingIndices = {};
 
@@ -62,7 +64,39 @@ class _AiChatScreenState extends State<AiChatScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _targetHost = widget.initialHost;
+    _scrollController.addListener(_onScrollChanged);
     _loadInitialSession();
+  }
+
+  void _onScrollChanged() {
+    if (!_scrollController.hasClients) return;
+    final distanceFromBottom = _scrollController.position.maxScrollExtent -
+        _scrollController.position.pixels;
+    final shouldShow = distanceFromBottom > 180;
+    if (shouldShow != _showScrollToBottom && mounted) {
+      setState(() => _showScrollToBottom = shouldShow);
+    }
+  }
+
+  void _copyText(String text, String label, {bool isConvId = false}) {
+    if (text.isEmpty) return;
+    HapticFeedback.lightImpact();
+    Clipboard.setData(ClipboardData(text: text));
+    if (isConvId && mounted) {
+      setState(() => _copiedConvId = true);
+      Future.delayed(const Duration(milliseconds: 1500), () {
+        if (mounted) setState(() => _copiedConvId = false);
+      });
+    }
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text('$label copied to clipboard'),
+          duration: const Duration(milliseconds: 1400),
+        ),
+      );
   }
 
   @override
@@ -306,7 +340,7 @@ class _AiChatScreenState extends State<AiChatScreen>
         }
         _isLoadingHistory = false;
       });
-      _scrollToBottom();
+      _scrollToBottom(force: true);
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -316,7 +350,8 @@ class _AiChatScreenState extends State<AiChatScreen>
     }
   }
 
-  void _scrollToBottom() {
+  void _scrollToBottom({bool force = false}) {
+    if (!force && _showScrollToBottom) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scrollController.hasClients) {
         _scrollController.animateTo(
@@ -369,7 +404,7 @@ class _AiChatScreenState extends State<AiChatScreen>
       _errorBanner = null;
       _turns = [...sanitizedPriorTurns, newTurn];
     });
-    _scrollToBottom();
+    _scrollToBottom(force: true);
     _startWatchdogTimer();
 
     final secret = await widget.storage.getConnectorToken(capturedHost.id);
@@ -619,6 +654,7 @@ class _AiChatScreenState extends State<AiChatScreen>
                     const SizedBox(height: 10),
                     TextField(
                       controller: searchCtrl,
+                      onChanged: (_) => setSheetState(() {}),
                       onSubmitted: runSearch,
                       style: const TextStyle(
                         fontSize: 13,
@@ -636,14 +672,32 @@ class _AiChatScreenState extends State<AiChatScreen>
                           size: 18,
                           color: DeckColors.secondaryText,
                         ),
-                        suffixIcon: IconButton(
-                          icon: const Icon(
-                            Icons.arrow_forward,
-                            size: 18,
-                            color: DeckColors.primaryAccent,
-                          ),
-                          tooltip: 'Search conversations',
-                          onPressed: () => runSearch(searchCtrl.text),
+                        suffixIcon: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (searchCtrl.text.isNotEmpty)
+                              IconButton(
+                                icon: const Icon(
+                                  Icons.close,
+                                  size: 16,
+                                  color: DeckColors.mutedText,
+                                ),
+                                tooltip: 'Clear search',
+                                onPressed: () {
+                                  searchCtrl.clear();
+                                  runSearch('');
+                                },
+                              ),
+                            IconButton(
+                              icon: const Icon(
+                                Icons.arrow_forward,
+                                size: 18,
+                                color: DeckColors.primaryAccent,
+                              ),
+                              tooltip: 'Search conversations',
+                              onPressed: () => runSearch(searchCtrl.text),
+                            ),
+                          ],
                         ),
                         filled: true,
                         fillColor: DeckColors.surfaceElevated,
@@ -658,6 +712,55 @@ class _AiChatScreenState extends State<AiChatScreen>
                         ),
                       ),
                     ),
+                    if (searchCtrl.text.trim().length >= 6 &&
+                        !searchCtrl.text.trim().contains(' ')) ...[
+                      const SizedBox(height: 8),
+                      InkWell(
+                        borderRadius: BorderRadius.circular(8),
+                        onTap: () {
+                          final targetId = searchCtrl.text.trim();
+                          Navigator.pop(sheetCtx);
+                          _loadInitialSession(explicitConvId: targetId);
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            color:
+                                DeckColors.primaryAccent.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: DeckColors.primaryAccent
+                                  .withValues(alpha: 0.4),
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(
+                                Icons.open_in_new,
+                                size: 14,
+                                color: DeckColors.primaryAccent,
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'Load Conversation ID "${searchCtrl.text.trim()}" directly',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: GoogleFonts.jetBrainsMono(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                    color: DeckColors.primaryAccent,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 12),
                     ConstrainedBox(
                       constraints: BoxConstraints(
@@ -728,30 +831,52 @@ class _AiChatScreenState extends State<AiChatScreen>
                                           children: [
                                             Row(
                                               children: [
-                                                Container(
-                                                  padding: const EdgeInsets
-                                                      .symmetric(
-                                                    horizontal: 6,
-                                                    vertical: 2,
+                                                InkWell(
+                                                  borderRadius:
+                                                      BorderRadius.circular(4),
+                                                  onTap: () => _copyText(
+                                                    item.conversationId,
+                                                    'Conversation ID (${item.conversationId})',
                                                   ),
-                                                  decoration: BoxDecoration(
-                                                    color: DeckColors
-                                                        .primaryAccent
-                                                        .withValues(
-                                                            alpha: 0.14),
-                                                    borderRadius:
-                                                        BorderRadius.circular(
-                                                            4),
-                                                  ),
-                                                  child: Text(
-                                                    shortId,
-                                                    style: GoogleFonts
-                                                        .jetBrainsMono(
-                                                      fontSize: 10,
-                                                      fontWeight:
-                                                          FontWeight.w700,
+                                                  child: Container(
+                                                    padding: const EdgeInsets
+                                                        .symmetric(
+                                                      horizontal: 6,
+                                                      vertical: 2,
+                                                    ),
+                                                    decoration: BoxDecoration(
                                                       color: DeckColors
-                                                          .primaryAccent,
+                                                          .primaryAccent
+                                                          .withValues(
+                                                              alpha: 0.14),
+                                                      borderRadius:
+                                                          BorderRadius.circular(
+                                                              4),
+                                                    ),
+                                                    child: Row(
+                                                      mainAxisSize:
+                                                          MainAxisSize.min,
+                                                      children: [
+                                                        Text(
+                                                          shortId,
+                                                          style: GoogleFonts
+                                                              .jetBrainsMono(
+                                                            fontSize: 10,
+                                                            fontWeight:
+                                                                FontWeight.w700,
+                                                            color: DeckColors
+                                                                .primaryAccent,
+                                                          ),
+                                                        ),
+                                                        const SizedBox(
+                                                            width: 4),
+                                                        const Icon(
+                                                          Icons.copy_rounded,
+                                                          size: 10,
+                                                          color: DeckColors
+                                                              .primaryAccent,
+                                                        ),
+                                                      ],
                                                     ),
                                                   ),
                                                 ),
@@ -770,8 +895,23 @@ class _AiChatScreenState extends State<AiChatScreen>
                                                             .secondaryText,
                                                       ),
                                                     ),
+                                                  )
+                                                else
+                                                  const Spacer(),
+                                                if (item.promptCount > 1) ...[
+                                                  const SizedBox(width: 6),
+                                                  Text(
+                                                    '${item.promptCount} turns',
+                                                    style: GoogleFonts
+                                                        .jetBrainsMono(
+                                                      fontSize: 9,
+                                                      color:
+                                                          DeckColors.mutedText,
+                                                    ),
                                                   ),
-                                                if (isCurrent)
+                                                ],
+                                                if (isCurrent) ...[
+                                                  const SizedBox(width: 6),
                                                   const Text(
                                                     'ACTIVE',
                                                     style: TextStyle(
@@ -781,6 +921,7 @@ class _AiChatScreenState extends State<AiChatScreen>
                                                       color: DeckColors.healthy,
                                                     ),
                                                   ),
+                                                ],
                                               ],
                                             ),
                                             const SizedBox(height: 6),
@@ -1038,15 +1179,67 @@ class _AiChatScreenState extends State<AiChatScreen>
                 )
               : _turns.isEmpty
                   ? _buildEmptyConversationState()
-                  : ListView.separated(
-                      controller: _scrollController,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 14,
-                      ),
-                      itemCount: _turns.length,
-                      separatorBuilder: (_, __) => const SizedBox(height: 14),
-                      itemBuilder: (ctx, idx) => _buildTurnCard(idx, _turns[idx]),
+                  : Stack(
+                      children: [
+                        ListView.separated(
+                          controller: _scrollController,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 14,
+                          ),
+                          itemCount: _turns.length,
+                          separatorBuilder: (_, __) =>
+                              const SizedBox(height: 14),
+                          itemBuilder: (ctx, idx) =>
+                              _buildTurnCard(idx, _turns[idx]),
+                        ),
+                        if (_showScrollToBottom)
+                          Positioned(
+                            right: 16,
+                            bottom: 12,
+                            child: Material(
+                              color: DeckColors.surfaceElevated,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(20),
+                                side: const BorderSide(
+                                  color: DeckColors.primaryAccent,
+                                ),
+                              ),
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(20),
+                                onTap: () {
+                                  HapticFeedback.lightImpact();
+                                  _scrollToBottom(force: true);
+                                },
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 6,
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const Icon(
+                                        Icons.arrow_downward_rounded,
+                                        size: 14,
+                                        color: DeckColors.primaryAccent,
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Text(
+                                        'Latest',
+                                        style: GoogleFonts.jetBrainsMono(
+                                          fontSize: 10,
+                                          fontWeight: FontWeight.w700,
+                                          color: DeckColors.primaryAccent,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
                     ),
         ),
         _buildPromptInputBar(),
@@ -1086,8 +1279,9 @@ class _AiChatScreenState extends State<AiChatScreen>
   }
 
   Widget _buildContextHeaderBar() {
-    final shortConv = (_activeConversationId != null &&
-            _activeConversationId!.isNotEmpty)
+    final hasConvId =
+        _activeConversationId != null && _activeConversationId!.isNotEmpty;
+    final shortConv = hasConvId
         ? (_activeConversationId!.length > 8
             ? _activeConversationId!.substring(0, 8)
             : _activeConversationId!)
@@ -1164,37 +1358,72 @@ class _AiChatScreenState extends State<AiChatScreen>
                 ),
               ),
               const SizedBox(width: 8),
-              // Conversation UUID badge (tappable to open history)
-              InkWell(
-                borderRadius: BorderRadius.circular(6),
-                onTap: _showSessionHistorySheet,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: DeckColors.primaryAccent.withValues(alpha: 0.14),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(
-                        Icons.chat_bubble_outline,
-                        size: 11,
-                        color: DeckColors.primaryAccent,
+              // Conversation UUID badge (1-tap to copy active ID, long-press for history)
+              Tooltip(
+                message: hasConvId
+                    ? 'Tap to copy Conversation ID ($_activeConversationId) · Long-press for Session History'
+                    : 'Tap to browse past sessions',
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(6),
+                  onTap: hasConvId
+                      ? () => _copyText(
+                            _activeConversationId!,
+                            'Conversation ID ($_activeConversationId)',
+                            isConvId: true,
+                          )
+                      : _showSessionHistorySheet,
+                  onLongPress: _showSessionHistorySheet,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: (_copiedConvId
+                              ? DeckColors.healthy
+                              : DeckColors.primaryAccent)
+                          .withValues(alpha: 0.14),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(
+                        color: (_copiedConvId
+                                ? DeckColors.healthy
+                                : DeckColors.primaryAccent)
+                            .withValues(alpha: 0.35),
                       ),
-                      const SizedBox(width: 5),
-                      Text(
-                        shortConv,
-                        style: GoogleFonts.jetBrainsMono(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w700,
-                          color: DeckColors.primaryAccent,
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          _copiedConvId
+                              ? Icons.check_rounded
+                              : Icons.chat_bubble_outline,
+                          size: 11,
+                          color: _copiedConvId
+                              ? DeckColors.healthy
+                              : DeckColors.primaryAccent,
                         ),
-                      ),
-                    ],
+                        const SizedBox(width: 5),
+                        Text(
+                          _copiedConvId ? 'COPIED' : shortConv,
+                          style: GoogleFonts.jetBrainsMono(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                            color: _copiedConvId
+                                ? DeckColors.healthy
+                                : DeckColors.primaryAccent,
+                          ),
+                        ),
+                        if (hasConvId && !_copiedConvId) ...[
+                          const SizedBox(width: 5),
+                          const Icon(
+                            Icons.copy_rounded,
+                            size: 10,
+                            color: DeckColors.primaryAccent,
+                          ),
+                        ],
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -1222,14 +1451,32 @@ class _AiChatScreenState extends State<AiChatScreen>
                   tooltip: 'New Conversation',
                   onPressed: _isStreaming ? null : _handleNewConversation,
                 ),
+                IconButton(
+                  constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                  padding: EdgeInsets.zero,
+                  icon: const Icon(
+                    Icons.refresh,
+                    size: 18,
+                    color: DeckColors.secondaryText,
+                  ),
+                  tooltip: 'Reload Conversation',
+                  onPressed: _isStreaming
+                      ? null
+                      : () => _loadInitialSession(
+                            explicitConvId: _activeConversationId,
+                          ),
+                ),
               ],
             ],
           ),
           const SizedBox(height: 8),
-          // Second row: Workspace & Model quick pills
+          // Second row: Workspace & Model quick pills (tap to configure, long-press to copy workspace path)
           InkWell(
             borderRadius: BorderRadius.circular(6),
             onTap: _isStreaming ? null : _showWorkspaceAndModelSheet,
+            onLongPress: _activeWorkspace.isNotEmpty
+                ? () => _copyText(_activeWorkspace, 'Workspace path')
+                : null,
             child: Row(
               children: [
                 const Icon(
@@ -1434,20 +1681,44 @@ class _AiChatScreenState extends State<AiChatScreen>
                       ),
                     ),
                     const Spacer(),
-                    InkWell(
-                      onTap: () {
-                        Clipboard.setData(ClipboardData(text: turn.prompt));
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Prompt copied to clipboard'),
-                            duration: Duration(seconds: 1),
+                    Tooltip(
+                      message: 'Load prompt into input bar',
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(4),
+                        onTap: _isStreaming
+                            ? null
+                            : () {
+                                HapticFeedback.lightImpact();
+                                _promptController.text = turn.prompt;
+                                _promptController.selection =
+                                    TextSelection.fromPosition(
+                                  TextPosition(offset: turn.prompt.length),
+                                );
+                              },
+                        child: const Padding(
+                          padding: EdgeInsets.all(4),
+                          child: Icon(
+                            Icons.edit_outlined,
+                            size: 13,
+                            color: DeckColors.mutedText,
                           ),
-                        );
-                      },
-                      child: const Icon(
-                        Icons.copy,
-                        size: 13,
-                        color: DeckColors.mutedText,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Tooltip(
+                      message: 'Copy prompt',
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(4),
+                        onTap: () => _copyText(turn.prompt, 'Prompt'),
+                        child: const Padding(
+                          padding: EdgeInsets.all(4),
+                          child: Icon(
+                            Icons.copy_rounded,
+                            size: 13,
+                            color: DeckColors.mutedText,
+                          ),
+                        ),
                       ),
                     ),
                   ],
@@ -1534,21 +1805,21 @@ class _AiChatScreenState extends State<AiChatScreen>
                     ),
                   ),
                   if (turn.response.isNotEmpty) ...[
-                    const SizedBox(width: 8),
-                    InkWell(
-                      onTap: () {
-                        Clipboard.setData(ClipboardData(text: turn.response));
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Agent response copied'),
-                            duration: Duration(seconds: 1),
+                    const SizedBox(width: 6),
+                    Tooltip(
+                      message: 'Copy agent response',
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(4),
+                        onTap: () =>
+                            _copyText(turn.response, 'Agent response'),
+                        child: const Padding(
+                          padding: EdgeInsets.all(4),
+                          child: Icon(
+                            Icons.copy_rounded,
+                            size: 14,
+                            color: DeckColors.mutedText,
                           ),
-                        );
-                      },
-                      child: const Icon(
-                        Icons.copy,
-                        size: 14,
-                        color: DeckColors.mutedText,
+                        ),
                       ),
                     ),
                   ],
@@ -1599,6 +1870,28 @@ class _AiChatScreenState extends State<AiChatScreen>
                               ),
                             ),
                             const Spacer(),
+                            Tooltip(
+                              message: 'Copy reasoning trace',
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(4),
+                                onTap: () => _copyText(
+                                  turn.thinking,
+                                  'Reasoning trace',
+                                ),
+                                child: const Padding(
+                                  padding: EdgeInsets.symmetric(
+                                    horizontal: 4,
+                                    vertical: 2,
+                                  ),
+                                  child: Icon(
+                                    Icons.copy_rounded,
+                                    size: 12,
+                                    color: DeckColors.mutedText,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 4),
                             Icon(
                               isThinkingExpanded
                                   ? Icons.expand_less
