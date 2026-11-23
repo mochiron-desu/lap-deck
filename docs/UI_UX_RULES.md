@@ -157,7 +157,8 @@ Follow the established spacing rhythm across all screens:
 
 ### 6.1 Application Header & AppBars
 - **HomeTab Header (`_buildAppHeader`)**: Fixed top bar with `1px` bottom border (`DeckColors.borderSubtle`), `LAPDECK` wordmark, `v1.2` monospace badge (must be derived from the `major.minor` version in `pubspec.yaml`, currently `1.2.0+37`, rather than drifting as an independent hardcoded string), `Refresh` action (morphs into an `18x18` amber spinner while loading), and `Add Peer Device` (`+`) action.
-- **Secondary Screen AppBars (`DevicesTab`, `TerminalTab`, `SettingsTab`, `DeviceDetailScreen`)**: Flat `AppBar` with `backgroundColor: DeckColors.background`, `elevation: 0`, concise title (`Devices`, `Terminal · <host.name>`, `Settings`, `<host.name>`), and 48x48dp action buttons.
+- **Secondary Screen AppBars (`DevicesTab`, `TerminalTab`, `SettingsTab`, `DeviceDetailScreen`)**: Flat `AppBar` with `backgroundColor: DeckColors.background`, `elevation: 0`, and concise title (`Devices`, `Terminal · <host.name>`, `Settings`, `<host.name>`).
+- **AppBar Action Restraint & Title Clearance**: Screen AppBars must preserve horizontal width for the title so device hostnames (e.g. `surajworklaptop`, `mochirondesu`) never truncate with ellipses. Specifically, `DeviceDetailScreen`'s AppBar limits `actions` strictly to `Refresh Telemetry` and `Configure Node` (`Icons.tune`). Redundant navigation actions (`Remote Files`, `Workstation Display`, `Open Terminal`) must NOT be placed in the AppBar because they are already prominently featured in the 2x2 overview action grid below.
 
 ### 6.2 Connectivity Alert Banner (`HomeTab._buildConnectivityAlert`)
 - Appears at the top of `HomeTab` **only** when the active target has been checked and has a confirmed issue (`peerStatus` is `unreachable`/`offline`, or `sshStatus`/`agentStatus` is `unavailable`).
@@ -171,7 +172,8 @@ Follow the established spacing rhythm across all screens:
 
 ### 6.4 Target Device Selector Card (`HomeTab._buildTargetDeviceSelectorCard`)
 - Placed **directly above** Quick Actions on `HomeTab` so the operator always sees which machine Quick Actions will hit.
-- Shows: `TARGET DEVICE` overline + `Selected` badge + reachability pill on top; OS icon + full hostname (`18sp w700`) + `<OS> · <tailscaleIp>` subtitle + explicit `Change device` button (`Icons.swap_horiz`) in the middle; and independent subsystem status pills (`Host`, `SSH`, `Agent`, `RTT`) at the bottom.
+- Shows: `TARGET DEVICE` overline + `Selected` badge + reachability pill on top; OS icon + full hostname (`18sp w700`) + `<OS> · <tailscaleIp>` subtitle + explicit `Change device` button (`Icons.swap_horiz`) in the middle; and independent subsystem status pills at the bottom.
+- **Symmetrical 2x2 Subsystem Grid**: The subsystem status pills are structured into a balanced 2-column grid (`Host` + `SSH` on row 1, `Agent` + `RTT`/`Auth` on row 2) with equal widths and borders. Never use an unconstrained `Wrap` here, as 3 items will take the top row and leave the 4th pill (`RTT`) stranded alone on a second row.
 - Tapping anywhere on the card opens `_showTargetSelectorSheet()`.
 
 ### 6.5 Context-Aware Quick Action Cards (`HomeTab._buildQuickActionsSection`)
@@ -184,12 +186,19 @@ Follow the established spacing rhythm across all screens:
 ### 6.6 Device Rows & Cards (`HomeTab` & `DevicesTab`)
 - **Line 1**: OS icon + complete untruncated hostname + `Selected` badge (if active target) + trailing reachability dot, status label, and verified latency (`<pingMs> ms` only when `hasFreshLatency == true`).
 - **Line 2**: `<osDisplayName> · <roleDisplayName>`.
-- **In `DevicesTab`**: Also includes independent `Peer`, `SSH`, and `Agent` status pills and a split bottom action bar (`Set as target` / `Selected target` on the left; `Device details` on the right).
+- **In `DevicesTab`**: Also includes independent `Peer`, `SSH`, and `Agent` status pills and a split bottom action bar (`Set as target` / `Selected` on the left; inline shortcuts for AI Console, Files, and Terminal in the middle; `Details` on the right).
+- **Action Bar Text Safety**: When placing text buttons alongside multiple icon buttons, wrap button text in `FittedBox(fit: BoxFit.scaleDown)` and `maxLines: 1`, set `VisualDensity.compact` on icon buttons, and use compact horizontal padding (`4dp`). Mid-word wrapping (such as breaking `Selected` into `Selecte` and `d`) is strictly prohibited.
 - **Interaction Rule**: Tapping the main body of a device row/card navigates to `DeviceDetailScreen` for that device without silently changing the global selected target.
 
 ### 6.7 Lapdog Security Summary (`HomeTab._buildSecurityOverviewCard` & `LapdogCard`)
 - On `HomeTab`, the Security Overview card is a **read-only status summary** (`Current security mode`, `Daemon health`, `Last health check`, `Security events` using the exact phrasing `X events recorded · Y pending in queue`) with a `Manage security` button that navigates to `DeviceDetailScreen`. Do not duplicate the `Arm Away` button inside `HomeTab`'s summary card, because `Arm/Disarm Away` is already in Quick Actions above.
 - On `DeviceDetailScreen`, `LapdogCard` provides the interactive Away Mode `Switch` bound to that specific device.
+
+### 6.8 Control Button Subtitle Discipline (`QuickControlsCard`)
+- Subtitle descriptions inside 2x2 device control grids must remain under 20 characters (e.g. `Suspend workstation`, `Reset security daemon`, `Sync Antigravity mesh`). Overly long strings like `Suspend to system sleep` overflow 2-column card layouts on mobile and truncate awkwardly to `Suspend to system sle...`.
+
+### 6.9 AI Model Identifier Formatting (`AiChatScreen`)
+- Never display raw API model identifiers (e.g. `gemini-3.8-flash-medium` or `claude-3-7-sonnet-20250219`) directly in mobile context bars where horizontal space is constrained. Use `_formatModelDisplay` to present concise human-readable badges (e.g. `Gemini 3.8 Flash (Med)`, `Gemini 3.8 Pro`, `Claude 3.7 Sonnet`).
 
 ---
 
@@ -289,6 +298,10 @@ LAPDECK targets Android (`minSdk = 24`, `compileSdk = 36`, `targetSdk = 35`) wit
    - All normal-sized text (`< 18sp` regular or `< 14sp` bold) must meet **WCAG AA contrast (`>= 4.5:1`)** against its background surface (`background`, `surfaceSecondary`, `surfaceElevated`, `surfaceHighlight`). Use `DeckColors.mutedText` at `#8490A3` (`5.26:1` on `surfaceSecondary`, `4.79:1` on `surfaceElevated`), never `#768294` (`4.35:1` and `3.96:1`, which fail WCAG AA).
    - Provide `tooltip` strings on all `IconButton` widgets (which Flutter exposes to Android TalkBack).
    - Use `Wrap` and `Expanded`/`Flexible` in metric rows (`VitalsCard`, `HomeTab`, `DevicesTab`) so Android system font scaling does not cause `RenderFlex` overflow errors.
+6. **Responsive Layout Discipline (Small Screens, Foldables & Tablets)**:
+   - **Small Screens (<360dp width)**: Restrict button text in dense rows with `FittedBox(fit: BoxFit.scaleDown)` and `maxLines: 1`. Never assume more than 340dp of usable horizontal space. Modal bottom sheets must set `isScrollControlled: true` and respect `viewInsets` to prevent keyboard collision.
+   - **Foldables & Tablets (>=600dp width)**: Avoid letting single-column card feeds stretch across the entire screen. Content containers must be bounded with a maximum width (`maxWidth: 680`) centered on screen, preserving the dense industrial dashboard ergonomics. On tablets >=720dp, multi-section screens (`DeviceDetailScreen`) should transition into dual-column layouts rather than tall vertical strips.
+   - **Landscape Mode**: Modifier keybars in `TerminalTab` must remain dockable and pinned above system navigation bars without obscuring the interactive viewport.
 
 ---
 

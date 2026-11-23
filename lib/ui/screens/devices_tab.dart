@@ -502,7 +502,7 @@ class _DevicesTabState extends State<DevicesTab> {
           const Divider(color: DeckColors.borderSubtle, height: 1),
           // Action bar: Select as Global Target vs Quick tools vs Inspect Device Details
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
             child: Row(
               children: [
                 Expanded(
@@ -524,35 +524,43 @@ class _DevicesTabState extends State<DevicesTab> {
                       isSelected
                           ? Icons.check_circle
                           : Icons.radio_button_unchecked,
-                      size: 16,
+                      size: 15,
                       color: isSelected
                           ? DeckColors.primaryAccent
                           : DeckColors.secondaryText,
                     ),
-                    label: Text(
-                      isSelected ? 'Selected' : 'Set target',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: isSelected
-                            ? DeckColors.primaryAccent
-                            : DeckColors.secondaryText,
+                    label: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        isSelected ? 'Selected' : 'Set target',
+                        maxLines: 1,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: isSelected
+                              ? DeckColors.primaryAccent
+                              : DeckColors.secondaryText,
+                        ),
                       ),
                     ),
                     style: TextButton.styleFrom(
-                      minimumSize: const Size.fromHeight(44),
+                      minimumSize: const Size.fromHeight(40),
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
                       alignment: Alignment.centerLeft,
                     ),
                   ),
                 ),
                 Container(
                   width: 1,
-                  height: 24,
+                  height: 20,
                   color: DeckColors.borderSubtle,
                 ),
                 IconButton(
-                  constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
-                  icon: const Icon(Icons.smart_toy_outlined, size: 18),
+                  visualDensity: VisualDensity.compact,
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  constraints: const BoxConstraints(minWidth: 34, minHeight: 36),
+                  icon: const Icon(Icons.smart_toy_outlined, size: 17),
                   color: DeckColors.primaryAccent,
                   tooltip: 'AI Console on ${host.name}',
                   onPressed: () {
@@ -571,8 +579,10 @@ class _DevicesTabState extends State<DevicesTab> {
                   },
                 ),
                 IconButton(
-                  constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
-                  icon: const Icon(Icons.folder_open, size: 18),
+                  visualDensity: VisualDensity.compact,
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  constraints: const BoxConstraints(minWidth: 34, minHeight: 36),
+                  icon: const Icon(Icons.folder_open, size: 17),
                   color: DeckColors.secondaryText,
                   tooltip: 'Remote Files on ${host.name}',
                   onPressed: () {
@@ -588,8 +598,10 @@ class _DevicesTabState extends State<DevicesTab> {
                   },
                 ),
                 IconButton(
-                  constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
-                  icon: const Icon(Icons.terminal, size: 18),
+                  visualDensity: VisualDensity.compact,
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  constraints: const BoxConstraints(minWidth: 34, minHeight: 36),
+                  icon: const Icon(Icons.terminal, size: 17),
                   color: DeckColors.secondaryText,
                   tooltip: 'Open Terminal on ${host.name}',
                   onPressed: () {
@@ -608,7 +620,7 @@ class _DevicesTabState extends State<DevicesTab> {
                 ),
                 Container(
                   width: 1,
-                  height: 24,
+                  height: 20,
                   color: DeckColors.borderSubtle,
                 ),
                 Expanded(
@@ -616,19 +628,25 @@ class _DevicesTabState extends State<DevicesTab> {
                     onPressed: () => _openDeviceDetails(host, isSelected),
                     icon: const Icon(
                       Icons.open_in_new,
-                      size: 15,
+                      size: 14,
                       color: DeckColors.primaryAccent,
                     ),
-                    label: const Text(
-                      'Details',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: DeckColors.primaryAccent,
+                    label: const FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerRight,
+                      child: Text(
+                        'Details',
+                        maxLines: 1,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: DeckColors.primaryAccent,
+                        ),
                       ),
                     ),
                     style: TextButton.styleFrom(
-                      minimumSize: const Size.fromHeight(44),
+                      minimumSize: const Size.fromHeight(40),
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
                       alignment: Alignment.centerRight,
                     ),
                   ),

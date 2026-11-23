@@ -230,27 +230,38 @@ class _AiChatScreenState extends State<AiChatScreen>
           }
           _scrollToBottom();
         } else if (_isStreaming && isPeerRunning) {
-          // Still active on peer: sync thoughts/tools
+          // Still active on peer: sync conversation up until now so operator is never kept hanging
           if (rawTurns.isNotEmpty) {
-            final latest = rawTurns.last;
             setState(() {
-              if (_turns.isNotEmpty) {
+              // If rawTurns has multiple turns, sync all completed earlier turns plus the active turn
+              if (rawTurns.length > _turns.length) {
+                _turns = _sanitizeTurns(rawTurns, isRunning: true);
+              } else if (_turns.isNotEmpty) {
                 final lastIdx = _turns.length - 1;
                 final current = _turns[lastIdx];
-                final updatedTools = List<String>.from(current.tools);
-                for (final t in latest.tools) {
-                  if (!updatedTools.contains(t)) updatedTools.add(t);
+                final latest = rawTurns.last;
+
+                // Verify that latest turn from history corresponds to this active prompt
+                final isSamePrompt = current.prompt.trim() == latest.prompt.trim() ||
+                    (latest.prompt.isEmpty && latest.status == AiTurnStatus.streaming);
+
+                if (isSamePrompt) {
+                  final updatedTools = List<String>.from(current.tools);
+                  for (final t in latest.tools) {
+                    if (!updatedTools.contains(t)) updatedTools.add(t);
+                  }
+                  _turns[lastIdx] = current.copyWith(
+                    thinking: latest.thinking.isNotEmpty
+                        ? latest.thinking
+                        : current.thinking,
+                    response: latest.response.isNotEmpty
+                        ? latest.response
+                        : current.response,
+                    tools: updatedTools,
+                    currentTool: latest.currentTool,
+                    status: AiTurnStatus.streaming,
+                  );
                 }
-                _turns[lastIdx] = current.copyWith(
-                  thinking: latest.thinking.isNotEmpty
-                      ? latest.thinking
-                      : current.thinking,
-                  response: latest.response.isNotEmpty
-                      ? latest.response
-                      : current.response,
-                  tools: updatedTools,
-                  currentTool: latest.currentTool,
-                );
               }
             });
             _scrollToBottom();
@@ -260,6 +271,10 @@ class _AiChatScreenState extends State<AiChatScreen>
               _sanitizeTurns(rawTurns, isRunning: isPeerRunning);
           setState(() {
             _turns = sanitized;
+            if (isPeerRunning) {
+              _isStreaming = true;
+              _startWatchdogTimer();
+            }
           });
         }
       }
@@ -328,7 +343,10 @@ class _AiChatScreenState extends State<AiChatScreen>
               (historyRes['turns'] as List<AiConversationTurn>?) ?? [];
           _turns = _sanitizeTurns(rawTurns, isRunning: isRunning);
 
-          if (!isRunning && _isStreaming) {
+          if (isRunning) {
+            _isStreaming = true;
+            _startWatchdogTimer();
+          } else if (_isStreaming) {
             _isStreaming = false;
             _stopWatchdogTimer();
             _streamSub?.cancel();
@@ -477,31 +495,20 @@ class _AiChatScreenState extends State<AiChatScreen>
       },
       onError: (e) {
         if (!mounted) return;
-        _stopWatchdogTimer();
-        setState(() {
-          _turns[turnIndex] = _turns[turnIndex].copyWith(
-            status: AiTurnStatus.error,
-            clearCurrentTool: true,
-            errorMessage: e.toString(),
-          );
-          _isStreaming = false;
-        });
-        // Check with peer in case the operation completed while stream dropped
+        // Don't prematurely mark as error or kill the watchdog!
+        // The peer might still be running the turn in the background (e.g. if the network dropped or app backgrounded).
+        // Let the watchdog poll the peer to see if it is still executing or completed.
+        _streamSub?.cancel();
+        _streamSub = null;
         _reconcileSessionWithPeer(silent: true);
       },
       onDone: () {
         if (!mounted) return;
-        _stopWatchdogTimer();
+        // Stream completed or disconnected.
+        _streamSub?.cancel();
+        _streamSub = null;
         if (_isStreaming) {
-          setState(() {
-            _turns[turnIndex] = _turns[turnIndex].copyWith(
-              status: _turns[turnIndex].response.isNotEmpty
-                  ? AiTurnStatus.completed
-                  : AiTurnStatus.error,
-              clearCurrentTool: true,
-            );
-            _isStreaming = false;
-          });
+          // Check with peer to get final response or determine if peer is still running
           _reconcileSessionWithPeer(silent: true);
         }
       },
@@ -1278,6 +1285,27 @@ class _AiChatScreenState extends State<AiChatScreen>
     );
   }
 
+  String _formatModelDisplay(String model) {
+    if (model.isEmpty) return 'Default Model';
+    final lower = model.toLowerCase();
+    if (lower.contains('gemini-3.8-flash-medium') || lower.contains('flash (medium)')) {
+      return 'Gemini 3.8 Flash (Med)';
+    } else if (lower.contains('gemini-3.8-flash-high') || lower.contains('flash (high)')) {
+      return 'Gemini 3.8 Flash (High)';
+    } else if (lower.contains('gemini-3.8-pro')) {
+      return 'Gemini 3.8 Pro';
+    } else if (lower.contains('claude-3-7-sonnet')) {
+      return 'Claude 3.7 Sonnet';
+    } else if (lower.contains('claude-3-5-sonnet')) {
+      return 'Claude 3.5 Sonnet';
+    }
+    return model
+        .replaceAll('gemini-', 'Gemini ')
+        .replaceAll('claude-', 'Claude ')
+        .replaceAll('-preview', '')
+        .replaceAll('-latest', '');
+  }
+
   Widget _buildContextHeaderBar() {
     final hasConvId =
         _activeConversationId != null && _activeConversationId!.isNotEmpty;
@@ -1511,7 +1539,7 @@ class _AiChatScreenState extends State<AiChatScreen>
                 const SizedBox(width: 4),
                 Flexible(
                   child: Text(
-                    _activeModel,
+                    _formatModelDisplay(_activeModel),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: GoogleFonts.jetBrainsMono(

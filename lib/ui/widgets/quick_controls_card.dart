@@ -147,7 +147,7 @@ class QuickControlsCard extends StatelessWidget {
                     context,
                     icon: Icons.power_settings_new,
                     label: 'Sleep Device',
-                    subtitle: 'Suspend to system sleep',
+                    subtitle: 'Suspend workstation',
                     color: DeckColors.error,
                     onTap: () => _confirmAction(
                       context,

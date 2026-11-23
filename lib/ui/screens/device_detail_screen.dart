@@ -519,24 +519,6 @@ class _DeviceDetailScreenState extends State<DeviceDetailScreen> {
         actions: [
           IconButton(
             constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
-            icon: const Icon(Icons.folder_open, size: 20),
-            tooltip: 'Remote Files',
-            onPressed: _openFileExplorer,
-          ),
-          IconButton(
-            constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
-            icon: const Icon(Icons.screenshot_monitor, size: 20),
-            tooltip: 'Workstation Display',
-            onPressed: _openScreengrab,
-          ),
-          IconButton(
-            constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
-            icon: const Icon(Icons.terminal, size: 20),
-            tooltip: 'Open Terminal',
-            onPressed: _openTerminal,
-          ),
-          IconButton(
-            constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
             icon: _isVitalsLoading
                 ? const SizedBox(
                     width: 18,

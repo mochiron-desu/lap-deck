@@ -60,10 +60,12 @@ Use the exact paths below when navigating or modifying the repository. Do not in
 - `lib/ui/screens/` (Active v2 4-Tab Architecture)
   - `lib/ui/screens/app_scaffold.dart`: Root `StatefulWidget` (`WidgetsBindingObserver`) hosting the 4-tab `IndexedStack`, bottom `NavigationBar`, global `_hosts` list, `_selectedHostId`, and `_telemetryByHost` cache.
   - `lib/ui/screens/home_tab.dart`: Primary operational screen (Tab 0) containing the app header, connectivity alert banner, network overview card, target device selector card + bottom sheet, 2x2 context-aware quick actions (`Terminal`, `Diagnostics`, `Arm/Disarm Away`, `Lock Session`), operation lifecycle feedback banner, connected devices list, Lapdog security summary card, and `_DiagnosticsBottomSheet`.
-  - `lib/ui/screens/devices_tab.dart`: Peer inventory screen (Tab 1) with search bar, filter chips (`All devices`, `Online`, `Linux`, `Windows`), independent subsystem state pills (`Peer`, `SSH`, `Agent`), target selection action, and navigation to `DeviceDetailScreen`.
-  - `lib/ui/screens/terminal_tab.dart`: Interactive PTY terminal screen (Tab 2) with landing connection card, target mismatch safety banner, `SelectableText` terminal viewport, hardware modifier keybar, and command input bar.
-  - `lib/ui/screens/settings_tab.dart`: Application settings and keystore status screen (Tab 3).
-  - `lib/ui/screens/device_detail_screen.dart`: Per-device deep inspection screen pushed from `HomeTab` or `DevicesTab`, composing `VitalsCard`, `LapdogCard`, `QuickControlsCard`, and `ProcessManagerCard`.
+  - `lib/ui/screens/devices_tab.dart`: Peer inventory screen (Tab 1) with search bar, filter chips (`All devices`, `Online`, `Linux`, `Windows`), independent subsystem state pills (`Peer`, `SSH`, `Agent`), single-line action bar (`Set as target` / `Selected` and `Details` with `FittedBox` text safety and compact tool shortcuts), and navigation to `DeviceDetailScreen`.
+  - `lib/ui/screens/connector_tab.dart`: Telegram Antigravity Connector operations screen (Tab 2) hosting mesh overview, peer node management, audit logs, and embedded AI Console.
+  - `lib/ui/screens/ai_chat_screen.dart`: Rich conversational AI interface for interacting with Antigravity instances on connected peers, featuring formatted model badges (`_formatModelDisplay`), workspace selector, and mobile-optimized Markdown rendering.
+  - `lib/ui/screens/terminal_tab.dart`: Interactive PTY terminal screen with landing connection card, target mismatch safety banner, `SelectableText` terminal viewport, hardware modifier keybar, and command input bar.
+  - `lib/ui/screens/settings_tab.dart`: Application settings, Git hotfix updater, and keystore status screen (Tab 3).
+  - `lib/ui/screens/device_detail_screen.dart`: Per-device deep inspection screen pushed from `HomeTab` or `DevicesTab`, with clean AppBar title clearance (actions limited to `Refresh Telemetry` and `Configure Node`), composing `_buildOverviewCard`, `VitalsCard`, `LapdogCard`, `QuickControlsCard`, and `ProcessManagerCard`.
   - `lib/ui/screens/host_config_dialog.dart`: Modal dialog for enrolling a new peer node or editing/deleting an existing `HostTarget` and its Keystore secret.
 - `lib/ui/widgets/` (Active Shared Widgets)
   - `lib/ui/widgets/vitals_card.dart`: CPU, RAM, disk progress meters and verified uptime display.
@@ -233,10 +235,19 @@ flutter devices
 flutter run -d <device-id> --release
 ```
 
-### 9.2 Validation Scope Distinction
+### 9.2 Build Environment & Memory Constraints
+`android/gradle.properties` sets JVM arguments to `-Xmx2048m -XX:MaxMetaspaceSize=512m -XX:ReservedCodeCacheSize=256m`. Do not increase this to large values (such as `-Xmx8G`), as excessive memory reservations cause the Gradle daemon to be killed by the Linux kernel OOM killer on developer laptops with 16GB RAM.
+
+### 9.3 Validation Scope Distinction
 When reporting validation results, agents must explicitly distinguish between:
 1. **Local Static & Unit Verification** (`flutter analyze`, `flutter test`, `flutter build apk`): Can and **must** be executed locally after any Dart, Gradle, or asset change.
-2. **Android Device / Emulator Verification**: Requires an attached ADB device (`flutter devices`) to verify `FlutterSecureStorage` Android Keystore encryption, haptic feedback, and window insets.
+2. **Android Device / Emulator Verification**: When a physical device is attached over ADB (`adb devices`), install and inspect via:
+   ```bash
+   adb -s <device-id> install -r build/app/outputs/flutter-apk/app-debug.apk
+   adb -s <device-id> shell am start -n com.mochirondesu.lap_deck/.MainActivity
+   adb -s <device-id> shell screencap -p /sdcard/screen.png && adb pull /sdcard/screen.png /tmp/screen.png
+   ```
+   Inspect actual device screenshots to verify `FittedBox` text constraints, subtitle clipping, and status pill layouts on real displays.
 3. **Live Tailscale & Remote Workstation Verification**: Requires an active `tailscale0`/`tun0` interface (`100.64.0.0/10`) and reachable remote peers (`surajworklaptop` or `mochirondesu`) with `sshd` and `lapdog` running to verify live SSH execution, PTY streaming, and session locking. Never claim live remote verification was performed if only `flutter test` and `flutter analyze` were run.
 
 ---

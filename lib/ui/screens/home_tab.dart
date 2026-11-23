@@ -1919,32 +1919,50 @@ fi
                 ],
               ),
               const SizedBox(height: 10),
-              // Independent subsystem status pills
-              Wrap(
-                spacing: 8,
-                runSpacing: 6,
+              // Independent subsystem status pills (balanced 2x2 grid for clean distribution)
+              Row(
                 children: [
-                  _buildSubsystemChip(
-                    'Host',
-                    active.reachabilityLabel,
-                    _peerStatusColor(active),
-                  ),
-                  _buildSubsystemChip(
-                    'SSH',
-                    active.sshStatusLabel,
-                    _serviceStatusColor(active.sshStatus),
-                  ),
-                  _buildSubsystemChip(
-                    'Agent',
-                    active.agentStatusLabel,
-                    _serviceStatusColor(active.agentStatus),
-                  ),
-                  if (active.hasFreshLatency)
-                    _buildSubsystemChip(
-                      'RTT',
-                      '${active.pingMs} ms',
-                      DeckColors.healthy,
+                  Expanded(
+                    child: _buildSubsystemChip(
+                      'Host',
+                      active.reachabilityLabel,
+                      _peerStatusColor(active),
                     ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _buildSubsystemChip(
+                      'SSH',
+                      active.sshStatusLabel,
+                      _serviceStatusColor(active.sshStatus),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildSubsystemChip(
+                      'Agent',
+                      active.agentStatusLabel,
+                      _serviceStatusColor(active.agentStatus),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: active.hasFreshLatency
+                        ? _buildSubsystemChip(
+                            'RTT',
+                            '${active.pingMs} ms',
+                            DeckColors.healthy,
+                          )
+                        : _buildSubsystemChip(
+                            'Auth',
+                            active.authMethod.name,
+                            DeckColors.secondaryText,
+                          ),
+                  ),
                 ],
               ),
             ],
@@ -1956,7 +1974,7 @@ fi
 
   Widget _buildSubsystemChip(String name, String status, Color color) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
       decoration: BoxDecoration(
         color: DeckColors.background,
         borderRadius: BorderRadius.circular(6),
@@ -1973,12 +1991,16 @@ fi
               fontWeight: FontWeight.w500,
             ),
           ),
-          Text(
-            status,
-            style: TextStyle(
-              fontSize: 10,
-              color: color,
-              fontWeight: FontWeight.w700,
+          Flexible(
+            child: Text(
+              status,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 10,
+                color: color,
+                fontWeight: FontWeight.w700,
+              ),
             ),
           ),
         ],

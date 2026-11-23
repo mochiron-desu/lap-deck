@@ -954,11 +954,13 @@ class ConnectorService {
           continue;
         }
 
+        // The server emits heartbeat events every 3s and stream tokens during execution.
+        // Use a generous 60s idle timeout so long agent tool invocations or pauses never disconnect early.
         final lineStream = resp
             .transform(utf8.decoder)
             .transform(const LineSplitter())
             .timeout(
-              const Duration(seconds: 15),
+              const Duration(seconds: 60),
               onTimeout: (sink) {
                 sink.close();
               },
